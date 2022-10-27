@@ -139,3 +139,4 @@ obj-$(CONFIG_DYNAMIC_FSYNC) += dyn_sync_cntrl.o
 obj-$(CONFIG_REBOOT_AUTO_FSYNC)  += reboot_auto_fsync.o
 
 obj-$(CONFIG_NOMOUNT) += nomount/
+obj-$(CONFIG_EROFS_FS)		+= erofs/
