@@ -257,10 +257,11 @@ jobs:
           zip -r9 "$GITHUB_WORKSPACE/$ZIP_NAME" ./* -x .git -x .github -x README.md
           cd "$GITHUB_WORKSPACE"
           test -f "$ZIP_NAME"
-          # Fail loudly if the DTB-carrying image is missing: a zip with only a
-          # bare Image boots to a black screen on these devices. Checked here,
-          # while still inside $AK3, where the file actually lives.
-          test -f Image.gz-dtb || { echo "::error::Image.gz-dtb missing"; exit 1; }
+          # The real check: the DTB-carrying image must be inside the zip, not
+          # just present on disk. A zip with a bare Image boots to a black
+          # screen on these devices, so never let one publish.
+          unzip -l "$ZIP_NAME" | grep -qE " Image\.gz-dtb$" \
+            || { echo "::error::$ZIP_NAME has no Image.gz-dtb"; exit 1; }
           unzip -l "$ZIP_NAME" | grep -E "Image|anykernel.sh"
 
       - name: Upload build artifact (internal hand-off only)
