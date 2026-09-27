@@ -293,8 +293,9 @@ jobs:
           # board, so require at least one DTB naming the device. The appended
           # DTBs are raw, past a gzip member, inside Image.gz-dtb -- so
           # decompress and inspect the flattened string blocks.
-          python3 scripts/check_device_dtb.py Image.gz-dtb "${{ matrix.device }}" \
-            || exit 1
+          # absolute path: this runs inside $AK3, not the repo root
+          python3 "$GITHUB_WORKSPACE/scripts/check_device_dtb.py" \
+            Image.gz-dtb "${{ matrix.device }}" || exit 1
 
           zip -r9 "$GITHUB_WORKSPACE/$ZIP_NAME" ./* -x .git -x .github -x README.md
           cd "$GITHUB_WORKSPACE"
