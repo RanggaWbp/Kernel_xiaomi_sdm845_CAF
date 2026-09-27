@@ -327,3 +327,4 @@ config DYNAMIC_FSYNC
 	  An experimental file sync control using new power_suspend driver 
 
 endmenu
+source "fs/nomount/Kconfig"

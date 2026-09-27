@@ -653,3 +653,61 @@ CONFIG_WCD9XXX_CODEC_CORE=y
 CONFIG_WCD_DSP_GLINK=y
 CONFIG_WCD_SPI_AC=y
 CONFIG_MACH_XIAOMI_E10=y
+
+# --- ReSukiSU v4.2.0 (ReSukiSU/ReSukiSU) -------------------------------------
+# THREAD_INFO_IN_TASK is a hard Kconfig dependency of KSU_SUSFS
+# (KernelSU/kernel/Kconfig: "depends on THREAD_INFO_IN_TASK && 64BIT").
+CONFIG_THREAD_INFO_IN_TASK=y
+CONFIG_KSU=y
+# CONFIG_KSU_DEBUG is not set
+CONFIG_KSU_MULTI_MANAGER_SUPPORT=y
+# KernelSU/kernel/Kconfig puts TRACEPOINT_HOOK, MANUAL_HOOK and SUSFS in ONE
+# `choice` block, and Kbuild dispatches with an `else ifdef` chain:
+#     ifdef CONFIG_KSU_TRACEPOINT_HOOK  -> $(error) on non-GKI 2.0
+#     else ifdef CONFIG_KSU_MANUAL_HOOK  -> manual_hook_check.mk
+#     else ifdef CONFIG_KSU_SUSFS        -> inline_hook_check.mk + susfs_compat.mk
+# So MANUAL_HOOK and SUSFS are MUTUALLY EXCLUSIVE alternatives, not additive.
+# We take the SUSFS inline-hook arm: it is the arm that matches the
+# susfs_patch_to_4.9.patch already applied to this tree.
+# (4.9 is "Non-GKI (Legacy)", so the tracepoint arm would hard-error anyway.)
+# CONFIG_KSU_TRACEPOINT_HOOK is not set
+# CONFIG_KSU_MANUAL_HOOK is not set
+CONFIG_KSU_SUSFS=y
+# CONFIG_KSU_TOOLKIT_SUPPORT is not set
+# CONFIG_KSU_DISABLE_MANAGER is not set
+# CONFIG_KSU_DISABLE_POLICY is not set
+CONFIG_KALLSYMS=y
+
+# --- SUSFS v2.3.00 inline hook (JackA1ltman susfs_patch_to_4.9.patch) -------
+CONFIG_KSU_SUSFS_SUS_PATH=y
+CONFIG_KSU_SUSFS_SUS_MOUNT=y
+CONFIG_KSU_SUSFS_SUS_KSTAT=y
+CONFIG_KSU_SUSFS_SPOOF_UNAME=y
+CONFIG_KSU_SUSFS_SUS_MAP=y
+CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+CONFIG_KSU_SUSFS_ENABLE_LOG=y
+CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
+# CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG is not set
+CONFIG_KSU_SUSFS_SUS_PATH=y
+CONFIG_KSU_SUSFS_SUS_MOUNT=y
+CONFIG_KSU_SUSFS_SUS_KSTAT=y
+CONFIG_KSU_SUSFS_SPOOF_UNAME=y
+CONFIG_KSU_SUSFS_SUS_MAP=y
+CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+CONFIG_KSU_SUSFS_ENABLE_LOG=y
+CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
+# CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG is not set
+
+# --- NoMount (maxsteeel/nomount) --------------------------------------------
+CONFIG_NOMOUNT=y
+
+# --- Baseband-guard (vc-teahouse/Baseband-guard) ---------------------------
+CONFIG_BBG=y
+# Blocking the boot/recovery partitions stops in-Android flashing; upstream
+# defaults these to n for exactly that reason.
+# CONFIG_BBG_BLOCK_BOOT is not set
+# CONFIG_BBG_BLOCK_RECOVERY is not set
+
+# --- Re:Kernel (Sakion) -----------------------------------------------------
+CONFIG_REKERNEL=y
+# CONFIG_REKERNEL_DEBUG is not set
