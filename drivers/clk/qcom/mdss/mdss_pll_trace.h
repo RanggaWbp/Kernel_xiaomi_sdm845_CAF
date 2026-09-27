@@ -113,6 +113,4 @@ TRACE_EVENT(mdss_pll_trace_counter,
 #endif /* _MDSS_PLL_TRACE_H_ */
 
 /* This part must be outside protection */
-#undef TRACE_INCLUDE_PATH
-#define TRACE_INCLUDE_PATH drivers/clk/qcom/mdss
 #include <trace/define_trace.h>
