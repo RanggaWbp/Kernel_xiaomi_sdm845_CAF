@@ -159,10 +159,12 @@ jobs:
 
       # ---------- build ----------
       - name: Build kernel
-        env:
-          MAKE_FLAGS: -j$(nproc)
         run: |
           set -o pipefail
+          # NOTE: do not pass this via `env:` -- Actions does not run shell
+          # substitution there, so "-j$(nproc)" would arrive literally and
+          # make would print its usage and exit 2.
+          MAKE_FLAGS="-j$(nproc)"
           export PATH="$GITHUB_WORKSPACE/tc/gcc-64/bin:$GITHUB_WORKSPACE/tc/gcc-32/bin:/usr/bin:/bin:$PATH"
           export HOSTCC=gcc
           export HOSTCXX=g++
