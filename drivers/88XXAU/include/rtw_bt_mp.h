@@ -283,6 +283,7 @@ typedef enum _BT_CTRL_OPCODE_LOWER {
 
 
 
+#pragma pack()
 #endif  /* #if(MP_DRIVER == 1) */
 
 #endif /*  #ifndef __INC_MPT_BT_H */
