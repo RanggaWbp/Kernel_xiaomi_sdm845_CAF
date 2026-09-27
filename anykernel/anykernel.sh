@@ -20,8 +20,9 @@ supported.versions=
 supported.patchlevels=
 supported.vendorpatchlevels=
 
+# Non-A/B devices: no _a/_b slot suffix, so AK3 must not try to detect one.
+is_slot_device=0;
 block=/dev/block/bootdevice/by-name/boot;
-is_slot_device=1;
 ramdisk_compression=auto;
 patch_vbmeta_flag=auto;
 

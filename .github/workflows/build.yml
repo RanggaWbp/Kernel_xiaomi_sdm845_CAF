@@ -238,7 +238,12 @@ jobs:
 
           cd "$AK3"
           rm -rf .git .github
-          cp "$GITHUB_WORKSPACE/arch/arm64/boot/Image" .
+          # CONFIG_BUILD_ARM64_APPENDED_DTB_IMAGE=y in every device defconfig, so
+          # Image.gz-dtb is the real bootable output (Image alone has no DTB and
+          # would boot to a black screen). The name must keep the -dtb suffix:
+          # ak3-core.sh strips kernel_dtb only for *-dtb, and for a plain name it
+          # never touches the DTB path at all.
+          cp "$GITHUB_WORKSPACE/arch/arm64/boot/Image.gz-dtb" .
           # anykernel.sh is committed in the repo; it cannot be inlined as an
           # indented heredoc inside a YAML block scalar (bash would emit the
           # block indentation into the script and AK3 would fail to parse it).
@@ -248,6 +253,9 @@ jobs:
           zip -r9 "$GITHUB_WORKSPACE/$ZIP_NAME" ./* -x .git -x .github -x README.md
           cd "$GITHUB_WORKSPACE"
           test -f "$ZIP_NAME"
+          # Fail loudly if the DTB-carrying image is missing: a zip with only a
+          # bare Image boots to a black screen on these devices.
+          test -f Image.gz-dtb || { echo "::error::Image.gz-dtb missing from zip"; exit 1; }
           unzip -l "$ZIP_NAME" | grep -E "Image|anykernel.sh"
 
       - name: Upload build artifact (internal hand-off only)
