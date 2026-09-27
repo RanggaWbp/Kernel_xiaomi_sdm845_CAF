@@ -2902,7 +2902,7 @@ hal_EfuseWordEnableDataWrite8814A(	IN	PADAPTER	pAdapter,
 			IS_HARDWARE_TYPE_8192E(pAdapter) || IS_HARDWARE_TYPE_8703B(pAdapter) || IS_HARDWARE_TYPE_8188F(pAdapter))
 			phy_set_mac_reg(pAdapter, EFUSE_TEST, BIT26, 1); // Restored to 1.5K Read, Suggested by Morris & Victor
 		
-		if((data[0]!=readbackData[0])||(data[1]!=readbackData[1])){
+		if ((data[0]!=readbackData[0])||(data[1]!=readbackData[1])){
 			badworden &= (~BIT0);
 		}
 	}
@@ -2923,7 +2923,7 @@ hal_EfuseWordEnableDataWrite8814A(	IN	PADAPTER	pAdapter,
 			IS_HARDWARE_TYPE_8192E(pAdapter) || IS_HARDWARE_TYPE_8703B(pAdapter) || IS_HARDWARE_TYPE_8188F(pAdapter))
 			phy_set_mac_reg(pAdapter, EFUSE_TEST, BIT26, 1); // Restored to 1.5K Read, Suggested by Morris & Victor
 
-		if((data[2]!=readbackData[2])||(data[3]!=readbackData[3])){
+		if ((data[2]!=readbackData[2])||(data[3]!=readbackData[3])){
 			badworden &=( ~BIT1);
 		}
 	}
@@ -2944,7 +2944,7 @@ hal_EfuseWordEnableDataWrite8814A(	IN	PADAPTER	pAdapter,
 			IS_HARDWARE_TYPE_8192E(pAdapter) || IS_HARDWARE_TYPE_8703B(pAdapter) || IS_HARDWARE_TYPE_8188F(pAdapter))
 			phy_set_mac_reg(pAdapter, EFUSE_TEST, BIT26, 1); // Restored to 1.5K Read, Suggested by Morris & Victor
 
-		if((data[4]!=readbackData[4])||(data[5]!=readbackData[5])){
+		if ((data[4]!=readbackData[4])||(data[5]!=readbackData[5])){
 			badworden &=( ~BIT2);
 		}
 	}
@@ -2965,7 +2965,7 @@ hal_EfuseWordEnableDataWrite8814A(	IN	PADAPTER	pAdapter,
 			IS_HARDWARE_TYPE_8192E(pAdapter) || IS_HARDWARE_TYPE_8703B(pAdapter) || IS_HARDWARE_TYPE_8188F(pAdapter))
 			phy_set_mac_reg(pAdapter, EFUSE_TEST, BIT26, 1); // Restored to 1.5K Read, Suggested by Morris & Victor
 
-		if((data[6]!=readbackData[6])||(data[7]!=readbackData[7])){
+		if ((data[6]!=readbackData[6])||(data[7]!=readbackData[7])){
 			badworden &=( ~BIT3);
 		}
 	}
@@ -4807,7 +4807,7 @@ static void hw_var_set_opmode(PADAPTER Adapter, u8 variable, u8* val)
 		
 		RTW_INFO("%s()-%d mode = %d\n", __FUNCTION__, __LINE__, mode);
 
-		if((mode == _HW_STATE_STATION_) || (mode == _HW_STATE_NOLINK_))
+		if ((mode == _HW_STATE_STATION_) || (mode == _HW_STATE_NOLINK_))
 		{
 			if(!check_buddy_mlmeinfo_state(Adapter, WIFI_FW_AP_STATE))
 			{
@@ -4930,7 +4930,7 @@ static void hw_var_set_opmode(PADAPTER Adapter, u8 variable, u8* val)
 		
 		RTW_INFO("%s()-%d mode = %d\n", __FUNCTION__, __LINE__, mode);
 		
-		if((mode == _HW_STATE_STATION_) || (mode == _HW_STATE_NOLINK_))
+		if ((mode == _HW_STATE_STATION_) || (mode == _HW_STATE_NOLINK_))
 		{
 #ifdef CONFIG_CONCURRENT_MODE
 			if(!check_buddy_mlmeinfo_state(Adapter, WIFI_FW_AP_STATE))		
@@ -4957,7 +4957,7 @@ static void hw_var_set_opmode(PADAPTER Adapter, u8 variable, u8* val)
 			rtw_write8(Adapter,REG_BCN_CTRL, 0x19);//disable atim wnd
 			//rtw_write8(Adapter,REG_BCN_CTRL, 0x18);
 		}
-		else if((mode == _HW_STATE_ADHOC_) /*|| (mode == _HW_STATE_AP_)*/)
+		else if (mode == _HW_STATE_ADHOC_) /*|| (mode == _HW_STATE_AP_)*/
 		{
 #ifdef RTL8814AE_SW_BCN
 			rtw_write16(Adapter, REG_CR, rtw_read16(Adapter, REG_CR)|BIT(8));
@@ -5137,7 +5137,7 @@ static void hw_var_set_correct_tsf(PADAPTER Adapter, u8 variable, u8* val)
 	//tsf = pmlmeext->TSFValue - ((u32)pmlmeext->TSFValue % (pmlmeinfo->bcn_interval*1024)) -1024; //us
 	tsf = pmlmeext->TSFValue - rtw_modular64(pmlmeext->TSFValue, (pmlmeinfo->bcn_interval*1024)) -1024; //us
 
-	if(((pmlmeinfo->state&0x03) == WIFI_FW_ADHOC_STATE) || ((pmlmeinfo->state&0x03) == WIFI_FW_AP_STATE))
+	if (((pmlmeinfo->state&0x03) == WIFI_FW_ADHOC_STATE) || ((pmlmeinfo->state&0x03) == WIFI_FW_AP_STATE))
 	{				
 		//pHalData->RegTxPause |= STOP_BCNQ;BIT(6)
 		//rtw_write8(Adapter, REG_TXPAUSE, (rtw_read8(Adapter, REG_TXPAUSE)|BIT(6)));
@@ -5213,7 +5213,7 @@ static void hw_var_set_correct_tsf(PADAPTER Adapter, u8 variable, u8* val)
 	}
 				
 							
-	if(((pmlmeinfo->state&0x03) == WIFI_FW_ADHOC_STATE) || ((pmlmeinfo->state&0x03) == WIFI_FW_AP_STATE))
+	if (((pmlmeinfo->state&0x03) == WIFI_FW_ADHOC_STATE) || ((pmlmeinfo->state&0x03) == WIFI_FW_AP_STATE))
 	{
 		//pHalData->RegTxPause  &= (~STOP_BCNQ);
 		//rtw_write8(Adapter, REG_TXPAUSE, (rtw_read8(Adapter, REG_TXPAUSE)&(~BIT(6))));
@@ -5641,7 +5641,7 @@ u8 SetHwReg8814A(PADAPTER padapter, u8 variable, u8 *pval)
 				//tsf = pmlmeext->TSFValue - ((u32)pmlmeext->TSFValue % (pmlmeinfo->bcn_interval*1024)) -1024; //us
 				tsf = pmlmeext->TSFValue - rtw_modular64(pmlmeext->TSFValue, (pmlmeinfo->bcn_interval*1024)) -1024; //us
 
-				if(((pmlmeinfo->state&0x03) == WIFI_FW_ADHOC_STATE) || ((pmlmeinfo->state&0x03) == WIFI_FW_AP_STATE))
+				if (((pmlmeinfo->state&0x03) == WIFI_FW_ADHOC_STATE) || ((pmlmeinfo->state&0x03) == WIFI_FW_AP_STATE))
 				{				
 					//pHalData->RegTxPause |= STOP_BCNQ;BIT(6)
 					//rtw_write8(padapter, REG_TXPAUSE, (rtw_read8(padapter, REG_TXPAUSE)|BIT(6)));
@@ -5659,7 +5659,7 @@ u8 SetHwReg8814A(PADAPTER padapter, u8 variable, u8 *pval)
 				rtw_write8(padapter, REG_BCN_CTRL, rtw_read8(padapter, REG_BCN_CTRL)|BIT(3));
 				
 							
-				if(((pmlmeinfo->state&0x03) == WIFI_FW_ADHOC_STATE) || ((pmlmeinfo->state&0x03) == WIFI_FW_AP_STATE))
+				if (((pmlmeinfo->state&0x03) == WIFI_FW_ADHOC_STATE) || ((pmlmeinfo->state&0x03) == WIFI_FW_AP_STATE))
 				{
 					//pHalData->RegTxPause  &= (~STOP_BCNQ);
 					//rtw_write8(padapter, REG_TXPAUSE, (rtw_read8(padapter, REG_TXPAUSE)&(~BIT(6))));
