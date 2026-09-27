@@ -198,23 +198,28 @@ jobs:
             CROSS_COMPILE_ARM32="$GITHUB_WORKSPACE/tc/gcc-32/bin/arm-linux-androideabi-" \
             2>&1 | tee -a build-${{ matrix.device }}.log
 
-      - name: Verify feature symbols landed in the built Image
+      - name: Verify feature symbols landed in the built kernel
         run: |
           set -eu
-          IMG=arch/arm64/boot/Image
-          test -f "$IMG"
-          nm -a "$IMG" > symbols.txt 2>/dev/null || true
+          # arch/arm64/boot/Image is a bare-metal boot image with no ELF
+          # header, so nm cannot read it ("file format not recognized") and
+          # every check below would MISS. vmlinux is the real ELF.
+          test -f vmlinux
+          tc/gcc-64/bin/aarch64-linux-android-nm vmlinux > symbols.txt
           fail=0
           check() {
-            if grep -q "$1" symbols.txt; then echo "  OK   $1"; else echo "  MISS $1"; fail=1; fi
+            if grep -qw "$1" symbols.txt; then echo "  OK   $1"; else echo "  MISS $1"; fail=1; fi
           }
-          check susfs_is_sdcard_android_data_not_decrypted
-          check susfs_is_current_proc_no_su
+          # real (non-inline) symbols: static inline helpers in headers are
+          # inlined at every call site and never emitted by the linker.
+          check susfs_add_sus_path
+          check susfs_add_open_redirect
           check ksu_handle_execveat
           check ksu_handle_sys_reboot
-          check nomount_hijacked_lookup
-          check bb_file_permission
-          check rekernel_report
+          check nomount_exit
+          check nomount_actor_proxy
+          check bb_cred_prepare
+          check rekernel_nf_ops
           exit $fail
 
       - name: Report feature-related warnings
