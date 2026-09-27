@@ -529,10 +529,14 @@ alternative_endif
 	and	\phys, \pte, #(((1 << (48 - PAGE_SHIFT)) - 1) << PAGE_SHIFT)
 	.endm
 
-	.macro __mitigate_spectre_bhb_loop      tmp
-#ifdef CONFIG_MITIGATE_SPECTRE_BRANCH_HISTORY
+.macro	__mitigate_spectre_bhb_loop      tmp
+#if defined(CONFIG_MITIGATE_SPECTRE_BRANCH_HISTORY) && defined(CONFIG_HARDEN_BRANCH_PREDICTOR)
+/* The callback lives in cpu_errata.c inside its CONFIG_HARDEN_BRANCH_PREDICTOR
+ * block, so the registration must be guarded by it too: guarding on
+ * MITIGATE_SPECTRE_BRANCH_HISTORY alone emits an alternative_cb reference to
+ * a symbol that is then never compiled, and vmlinux fails to link. */
 alternative_cb  spectre_bhb_patch_loop_iter
-	mov	\tmp, #32		// Patched to correct the immediate
+mov	\tmp, #32		// Patched to correct the immediate
 alternative_cb_end
 .Lspectre_bhb_loop\@:
 	b	. + 4
@@ -540,8 +544,8 @@ alternative_cb_end
 	b.ne	.Lspectre_bhb_loop\@
 	dsb	nsh
 	isb
-#endif /* CONFIG_MITIGATE_SPECTRE_BRANCH_HISTORY */
-	.endm
+#endif /* MITIGATE_SPECTRE_BRANCH_HISTORY && HARDEN_BRANCH_PREDICTOR */
+.endm
 
 	/* Save/restores x0-x3 to the stack */
 	.macro __mitigate_spectre_bhb_fw
