@@ -1,0 +1,54 @@
+Backport Re:Kernel to Linux 4.9: cgroup_task_frozen() does not exist
+
+drivers/net/rekernel/rekernel.h (created by rekernel_extra.patch from
+JackA1ltman/NonGKI_Kernel_Build_2nd, mainline) defined:
+
+    static inline bool frozen_task_group(struct task_struct* task) {
+        return (cgroup_task_frozen(task) || cgroup_freezing(task));
+    }
+
+cgroup_task_frozen() arrived in commit 6b95a0d1baac ("cgroup: add
+cgroup_task_frozen()") and does not exist in 4.9, so rekernel.c fails to
+compile at its two call sites (the binder fault report guards).
+
+Re-express the same predicate using the primitives 4.9 actually has:
+cgroup_freezing() from <linux/freezer.h> (only when CONFIG_CGROUP_FREEZER
+is set, which is why that config is added to all six defconfigs) plus
+frozen(), which tests PF_FROZEN on task->flags.
+
+Semantics are preserved: the helper is only used to skip reporting for
+tasks that are in a frozen cgroup subtree, and on 4.9 the freezer flag is
+the only signal available.
+
+Upstream: JackA1ltman/NonGKI_Kernel_Build_2nd @ mainline,
+Patches/Rekernel/rekernel_extra.patch
+
+--- a/include/net/rekernel.h
++++ b/include/net/rekernel.h
+@@ -24,8 +24,25 @@ enum binder_type {
+     OVERFLOW,
+ };
+
++/*
++ * Backport for Linux 4.9 (LawRun CAF sdm845, 4.9.337).
++ *
++ * upstream (5.x+) provides cgroup_task_frozen() alongside cgroup_freezing().
++ * That helper landed in commit 6b95a0d1baac ("cgroup: add
++ * cgroup_task_frozen()"), which is NOT present in 4.9. On 4.9 the only
++ * cgroup-freezer primitives available are:
++ *   - cgroup_freezing(task)  -> include/linux/freezer.h (CONFIG_CGROUP_FREEZER)
++ *   - frozen(task)          -> PF_FROZEN test bit on task->flags
++ *
++ * So re-express the check using the 4.9 equivalents, keeping the same
++ * semantics: "is this task in a frozen cgroup subtree".
++ */
+ static inline bool frozen_task_group(struct task_struct* task) {
+-    return (cgroup_task_frozen(task) || cgroup_freezing(task));
++#ifdef CONFIG_CGROUP_FREEZER
++	return cgroup_freezing(task) || frozen(task);
++#else
++	return frozen(task);
++#endif
+ }
+
+ extern void rekernel_report_no_binder_rpc_code(int type, pid_t src_pid, struct task_struct* src, pid_t dst_pid, struct task_struct* dst, bool oneway, char* rpc_name);

@@ -1,0 +1,59 @@
+Backport Baseband-guard to Linux 4.9: gate the "blk.h" include
+
+kernel_compat.h unconditionally did:
+
+    #include "blk.h"
+
+That header only exists from v5.11, where it was split out of
+<linux/blkdev.h>. On 4.9 the include does not resolve and the build
+fails before anything else in Baseband-guard is even reached.
+
+In 4.9, blkdev_get_by_dev()/blkdev_put() are still declared in
+<linux/fs.h>, and <linux/blkdev.h> already pulls <linux/fs.h> in
+transitively, so the existing `#if LINUX_VERSION_CODE < KERNEL_VERSION(5,11,0)`
+branch of this header compiles unchanged once the include is gated.
+
+This is the ONLY 4.9 change Baseband-guard needs. The rest of the module
+already has pre-5.x handling, verified against this tree:
+
+  * security_add_hooks() takes 2 arguments below 4.11 --
+    security_add_hooks_compat() already selects the 2-arg form there.
+  * bprm_creds_for_exec does not exist before 5.8 -- baseband_guard.c
+    already falls back to bprm_set_creds under `#if < 5.8`.
+  * file_ioctl_compat is absent (4.9 has no compat ioctl hook) and
+    disk_get_part is absent, so Baseband-guard's Makefile auto-detects
+    both and leaves BB_HAS_IOCTL_COMPAT and BBG_COMPAT_HAS_BLOCK_DEVICE_API
+    off, selecting the <5.11 blkdev path and the pre-3.18 gendisk
+    partition-name resolution path.
+  * DEFINE_LSM does not exist, so setup.sh's detection takes its SELinux
+    route: struct bbg_cred_security_struct is appended to
+    struct task_security_struct in objsec.h and tracing.h is linked into
+    security/selinux/include/, with bbg_cred() resolving through
+    cred->security.
+
+Upstream: vc-teahouse/Baseband-guard @ a54e0dc6
+
+--- a/kernel_compat.h
++++ b/kernel_compat.h
+@@ -1,9 +1,21 @@
+ #include <linux/blkdev.h>
+ #include <linux/security.h>
+ #include <linux/lsm_hooks.h>
+ #include <linux/version.h>
+ #include "objsec.h"
++/*
++ * Backport for Linux 4.9 (LawRun CAF sdm845, 4.9.337).
++ *
++ * <linux/blk.h> only exists from v5.11 (split out of <linux/blkdev.h> by
++ * commit 2f0c5a3a0d0d "block: split out blkdev.h include"). In 4.9
++ * blkdev_get_by_dev()/blkdev_put() are still declared in <linux/fs.h>,
++ * which <linux/blkdev.h> already pulls in transitively here.
++ *
++ * So only include "blk.h" on the kernels that actually have it.
++ */
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 11, 0)
+ #include "blk.h"
++#endif
+
+ #if LINUX_VERSION_CODE < KERNEL_VERSION(5,11,0)
+ static __maybe_unused inline int lookup_bdev_compat(char *path, dev_t *out) {
