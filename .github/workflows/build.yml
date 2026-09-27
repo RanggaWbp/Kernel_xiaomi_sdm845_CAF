@@ -249,13 +249,18 @@ jobs:
           # block indentation into the script and AK3 would fail to parse it).
           cp "$GITHUB_WORKSPACE/anykernel/anykernel.sh" .
           head -n1 anykernel.sh
+          # Fail loudly if the DTB-carrying image is missing: a zip with only a
+          # bare Image boots to a black screen on these devices. Checked here,
+          # while still inside $AK3, which is where the file actually lives.
+          test -f Image.gz-dtb || { echo "::error::Image.gz-dtb missing"; exit 1; }
 
           zip -r9 "$GITHUB_WORKSPACE/$ZIP_NAME" ./* -x .git -x .github -x README.md
           cd "$GITHUB_WORKSPACE"
           test -f "$ZIP_NAME"
           # Fail loudly if the DTB-carrying image is missing: a zip with only a
-          # bare Image boots to a black screen on these devices.
-          test -f Image.gz-dtb || { echo "::error::Image.gz-dtb missing from zip"; exit 1; }
+          # bare Image boots to a black screen on these devices. Checked here,
+          # while still inside $AK3, where the file actually lives.
+          test -f Image.gz-dtb || { echo "::error::Image.gz-dtb missing"; exit 1; }
           unzip -l "$ZIP_NAME" | grep -E "Image|anykernel.sh"
 
       - name: Upload build artifact (internal hand-off only)
