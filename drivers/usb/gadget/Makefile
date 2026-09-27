@@ -4,6 +4,9 @@
 subdir-ccflags-$(CONFIG_USB_GADGET_DEBUG)	:= -DDEBUG
 subdir-ccflags-$(CONFIG_USB_GADGET_VERBOSE)	+= -DVERBOSE_DEBUG
 ccflags-y				+= -I$(srctree)/drivers/usb/gadget/udc
+# configfs.c includes <function/u_ncm.h>; the leading "function/" means the
+# -I entry must be the parent (gadget/), not the function/ dir itself.
+ccflags-y				+= -I$(srctree)/drivers/usb/gadget
 
 obj-$(CONFIG_USB_LIBCOMPOSITE)	+= libcomposite.o
 libcomposite-y			:= usbstring.o config.o epautoconf.o
