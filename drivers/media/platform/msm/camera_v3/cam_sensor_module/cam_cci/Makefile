@@ -6,3 +6,5 @@ ccflags-y += -Idrivers/media/platform/msm/camera_v3/cam_req_mgr
 ccflags-y += -Idrivers/media/platform/msm/camera_v3/cam_smmu/
 
 obj-$(CONFIG_SPECTRA_CAMERA) += cam_cci_dev.o cam_cci_core.o cam_cci_soc.o
+# headers included by neighbouring directories resolve only via -I for this directory
+ccflags-y += -I$(src)

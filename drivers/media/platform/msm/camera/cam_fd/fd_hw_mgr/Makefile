@@ -12,3 +12,5 @@ ccflags-y += -Idrivers/media/platform/msm/camera/cam_cpas/include
 
 obj-$(CONFIG_SPECTRA_CAMERA) += fd_hw/
 obj-$(CONFIG_SPECTRA_CAMERA) += cam_fd_hw_mgr.o
+# cam_trace.h (cam_utils) includes headers that live in this directory
+ccflags-y += -I$(src)

@@ -12,3 +12,5 @@ ccflags-y += -Idrivers/media/platform/msm/camera_v3/cam_cpas/include
 
 obj-$(CONFIG_SPECTRA_CAMERA) += hw_utils/ isp_hw/
 obj-$(CONFIG_SPECTRA_CAMERA) += cam_isp_hw_mgr.o cam_ife_hw_mgr.o
+# headers included by neighbouring directories resolve only via -I for this directory
+ccflags-y += -I$(src)

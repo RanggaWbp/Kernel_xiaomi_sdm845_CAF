@@ -9,3 +9,5 @@ ccflags-y += -Idrivers/media/platform/msm/camera/cam_smmu/
 ccflags-y += -Idrivers/media/platform/msm/camera/cam_utils
 
 obj-$(CONFIG_SPECTRA_CAMERA) += cam_actuator_dev.o cam_actuator_core.o cam_actuator_soc.o
+# cam_trace.h (cam_utils) includes headers that live in this directory
+ccflags-y += -I$(src)

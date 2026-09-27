@@ -7,3 +7,5 @@ ccflags-y += -Idrivers/media/platform/msm/camera/cam_smmu/
 ccflags-y += -Idrivers/media/platform/msm/camera/cam_cpas/include
 
 obj-$(CONFIG_SPECTRA_CAMERA) +=  cam_sensor_util.o
+# headers included by neighbouring directories resolve only via -I for this directory
+ccflags-y += -I$(src)
