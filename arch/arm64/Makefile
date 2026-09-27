@@ -185,6 +185,12 @@ PHONY += dtbs dtbs_install
 dtbs: prepare scripts
 	$(Q)$(MAKE) $(build)=$(boot)/dts
 
+# Diagnostic: forward to the dts Makefile so CI can print the resolved DTB
+# list. Harmless no-op for a real build.
+.PHONY: dtb-y-print
+dtb-y-print: prepare scripts
+	$(Q)$(MAKE) $(build)=$(boot)/dts dtb-y-print
+
 dtbs_install:
 	$(Q)$(MAKE) $(dtbinst)=$(boot)/dts
 

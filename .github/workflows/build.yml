@@ -186,6 +186,12 @@ jobs:
           for sym in KSU KSU_SUSFS THREAD_INFO_IN_TASK NOMOUNT BBG REKERNEL; do
             grep -q "CONFIG_${sym}=y" .config || { echo "::error::CONFIG_${sym} missing from .config"; exit 1; }
           done
+          # The board symbol decides which DTBs qcom/Makefile builds, and a
+          # silentoldconfig later in the build can drop it. If the board symbol
+          # is not set, the device gets only generic sdm845 DTBs.
+          grep -E "^CONFIG_MACH_XIAOMI_.*=y" .config \
+            || { echo "::error::no CONFIG_MACH_XIAOMI_* board symbol in .config"; exit 1; }
+          grep -E "^CONFIG_MACH_XIAOMI_.*=y" .config
           echo "All feature configs present in .config"
 
           # Build the device trees BEFORE the kernel image so that $(shell find)
@@ -204,8 +210,16 @@ jobs:
             dtbs \
             2>&1 | tee -a build-${{ matrix.device }}.log
 
-          # List the DTBs this device actually produced, so a device whose own
-          # board is missing shows up in the log instead of only in a count.
+          # Show what Kbuild computed for dtb-y: that is the list make will
+          # build, and it is where a missing board first becomes visible.
+          echo "=== ${{ matrix.device }} dtb-y ==="
+          make ARCH=$KERNEL_ARCH HOSTCC=gcc HOSTCXX=g++ \
+            CC="$GITHUB_WORKSPACE/tc/clang/bin/clang" \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE="$GITHUB_WORKSPACE/tc/gcc-64/bin/aarch64-linux-android-" \
+            CROSS_COMPILE_ARM32="$GITHUB_WORKSPACE/tc/gcc-32/bin/arm-linux-androideabi-" \
+            DEVICE_NAME="${{ matrix.device }}" \
+            dtb-y-print 2>&1 || echo "(dtb-y-print failed)"
           echo "=== ${{ matrix.device }} DTBs ==="
           ls arch/arm64/boot/dts/qcom/ | grep -E "^${{ matrix.device }}.*\.dtb$" \
             || echo "NONE: no ${{ matrix.device }}-*.dtb was built"

@@ -41,4 +41,12 @@ targets += $(DTB_LIST)
 
 dtbs: $(addprefix $(obj)/, $(DTB_LIST))
 
+# Diagnostic for CI: print the DTB list Kbuild actually resolved, so a board
+# that silently dropped out of the config is visible by name.
+.PHONY: dtb-y-print
+dtb-y-print:
+	@echo "DTB_LIST count: $(words $(DTB_LIST))"
+	@echo "device DTBs: $(filter $(DEVICE_NAME)-%,$(DTB_LIST))"
+	@echo "all: $(DTB_LIST)"
+
 clean-files := dts/*.dtb *.dtb
