@@ -237,7 +237,12 @@ jobs:
           echo "ZIP_NAME=$ZIP_NAME" >> "$GITHUB_ENV"
 
           cd "$AK3"
-          rm -rf .git .github
+          # Clear the checkout AND anything a cached AK3 tree left behind. A
+          # restored cache can still hold a bare Image from an earlier run, and
+          # ak3-core.sh's search order picks a bare Image over Image.gz-dtb, so
+          # a stray copy would silently win and boot without a DTB.
+          rm -rf .git .github Image Image-dtb Image.gz Image.bz2 Image.lzo \
+                 Image.lzma Image.xz Image.lz4 kernel
           # CONFIG_BUILD_ARM64_APPENDED_DTB_IMAGE=y in every device defconfig, so
           # Image.gz-dtb is the real bootable output (Image alone has no DTB and
           # would boot to a black screen). The name must keep the -dtb suffix:
@@ -262,6 +267,13 @@ jobs:
           # screen on these devices, so never let one publish.
           unzip -l "$ZIP_NAME" | grep -qE " Image\.gz-dtb$" \
             || { echo "::error::$ZIP_NAME has no Image.gz-dtb"; exit 1; }
+          # ak3-core.sh scans for a kernel in a fixed order and a bare Image
+          # comes before Image.gz-dtb, so a stray bare Image in the zip wins
+          # and boots with no DTB. Refuse to publish one.
+          if unzip -l "$ZIP_NAME" | grep -qE " (Image|Image-dtb|Image\.gz|Image\.bz2|Image\.lzo|Image\.lzma|Image\.xz|Image\.lz4)$"; then
+            echo "::error::$ZIP_NAME contains a bare Image that would shadow Image.gz-dtb"
+            exit 1
+          fi
           unzip -l "$ZIP_NAME" | grep -E "Image|anykernel.sh"
 
       - name: Upload build artifact (internal hand-off only)
