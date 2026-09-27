@@ -204,6 +204,12 @@ jobs:
             dtbs \
             2>&1 | tee -a build-${{ matrix.device }}.log
 
+          # List the DTBs this device actually produced, so a device whose own
+          # board is missing shows up in the log instead of only in a count.
+          echo "=== ${{ matrix.device }} DTBs ==="
+          ls arch/arm64/boot/dts/qcom/ | grep -E "^${{ matrix.device }}.*\.dtb$" \
+            || echo "NONE: no ${{ matrix.device }}-*.dtb was built"
+
           make $MAKE_FLAGS \
             ARCH=$KERNEL_ARCH \
             HOSTCC=gcc \
@@ -283,6 +289,12 @@ jobs:
           got=$(python3 -c "import sys;d=open(sys.argv[1],'rb').read();print(d.count(b'\xd0\x0d\xfe\xed'))" Image.gz-dtb)
           echo "DTBs: $got in image, $want in tree"
           [ "$got" = "$want" ] || { echo "::error::only $got of $want DTBs in Image.gz-dtb"; exit 1; }
+          # A device shipping only generic sdm845 DTBs cannot match its own
+          # board, so require at least one DTB naming the device. The appended
+          # DTBs are raw, past a gzip member, inside Image.gz-dtb -- so
+          # decompress and inspect the flattened string blocks.
+          python3 scripts/check_device_dtb.py Image.gz-dtb "${{ matrix.device }}" \
+            || exit 1
 
           zip -r9 "$GITHUB_WORKSPACE/$ZIP_NAME" ./* -x .git -x .github -x README.md
           cd "$GITHUB_WORKSPACE"
