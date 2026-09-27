@@ -63,6 +63,19 @@ EXPORT_SYMBOL(generic_fillattr);
 int vfs_getattr_nosec(struct path *path, struct kstat *stat)
 {
 	struct inode *inode = d_backing_inode(path->dentry);
+#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
+	/*
+	 * Backport note for 4.9 (LawRun CAF sdm845).
+	 *
+	 * Upstream SUSFS drives this from `stat->result_mask`, but 4.9's
+	 * `struct kstat` (include/linux/stat.h) has no result_mask field at
+	 * all -- that arrived with the 5.x stat rework, along with the
+	 * request_mask/query_flags arguments to ->getattr(). So the mask is
+	 * tracked in a local here and handed to the SUSFS helper explicitly,
+	 * which is the only place it is consumed anyway.
+	 */
+	u32 susfs_mask = 0;
+#endif
 
 #ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
 	{
@@ -71,26 +84,27 @@ int vfs_getattr_nosec(struct path *path, struct kstat *stat)
 		bool is_fuse = false;
 
 		if (susfs_is_inode_sus_kstat(inode, &is_fuse))
-			stat->result_mask |= is_fuse ?
-				STATX_SUS_KSTAT_FUSE : STATX_SUS_KSTAT;
+			susfs_mask = is_fuse ? STATX_SUS_KSTAT_FUSE : STATX_SUS_KSTAT;
 	}
 #endif
 	if (inode->i_op->getattr) {
 		int err = inode->i_op->getattr(path->mnt, path->dentry, stat);
 #ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
-		if (!err && (stat->result_mask & STATX_SUS_KSTAT)) {
-			susfs_sus_kstat_spoof_generic_fillattr(inode, stat, STATX_SUS_KSTAT);
+		if (!err && susfs_mask) {
+			susfs_sus_kstat_spoof_generic_fillattr(inode, stat, susfs_mask);
 			return err;
-		}
-		if (!err && (stat->result_mask & STATX_SUS_KSTAT_FUSE)) {
-			susfs_sus_kstat_spoof_generic_fillattr(inode, stat, STATX_SUS_KSTAT_FUSE);
-			return 0;
 		}
 #endif
 		return err;
 	}
 
 	generic_fillattr(inode, stat);
+#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
+	if (susfs_mask) {
+		susfs_sus_kstat_spoof_generic_fillattr(inode, stat, susfs_mask);
+		return 0;
+	}
+#endif
 	return 0;
 }
 
@@ -157,7 +171,7 @@ retry:
 
 	if (static_branch_likely(&ksu_su_compat_enabled)) {
 		if (unlikely(__ksu_is_allow_uid_for_current(current_uid().val)))
-			ksu_handle_stat(&dfd, &fname, &flags);
+			ksu_handle_stat(&dfd, &fname, &flag);
 	}
 
 orig_flow:
