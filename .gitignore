@@ -123,3 +123,6 @@ kernel/configs/android-*.cfg
 #Ignoring Android.bp link file
 #
 Android.bp
+# local cross-toolchain clones (ProtonClang + AOSP GCC 4.9); CI fetches its own
+tc/
+genheaders
