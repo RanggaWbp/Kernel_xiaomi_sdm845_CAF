@@ -50,3 +50,6 @@ obj-$(CONFIG_OCFS2_FS) += dlmfs/
 # cluster/ is always needed when OCFS2_FS for masklog support
 obj-$(CONFIG_OCFS2_FS) += cluster/
 obj-$(CONFIG_OCFS2_FS_O2CB) += dlm/
+# needed for trace events (quoted self-include via <trace/define_trace.h>;
+# -nostdinc resolves it only via an explicit -I for this directory)
+ccflags-y += -I$(src)

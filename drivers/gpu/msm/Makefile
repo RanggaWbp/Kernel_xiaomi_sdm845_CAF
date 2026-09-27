@@ -1,4 +1,7 @@
 ccflags-y := -Iinclude/linux
+# needed for trace events (quoted self-include via <trace/define_trace.h>;
+# -nostdinc resolves it only via an explicit -I for this directory)
+ccflags-y += -I$(src)
 
 msm_kgsl_core-y = \
 	kgsl.o \

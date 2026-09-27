@@ -1,3 +1,6 @@
+# needed for trace events (quoted self-include via <trace/define_trace.h>;
+# -nostdinc resolves it only via an explicit -I for this directory)
+ccflags-y += -I$(src)
 obj-$(CONFIG_IPA) += ipat.o
 ipat-y := ipa.o ipa_debugfs.o ipa_hdr.o ipa_flt.o ipa_rt.o ipa_dp.o ipa_client.o \
 	ipa_utils.o ipa_nat.o ipa_intf.o teth_bridge.o ipa_interrupts.o \

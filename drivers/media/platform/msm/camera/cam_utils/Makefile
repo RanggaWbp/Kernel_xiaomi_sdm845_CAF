@@ -1,3 +1,6 @@
+# needed for trace events (quoted self-include via <trace/define_trace.h>;
+# -nostdinc resolves it only via an explicit -I for this directory)
+ccflags-y += -I$(src)
 ccflags-y += -Idrivers/media/platform/msm/camera/cam_core/
 ccflags-y += -Idrivers/media/platform/msm/camera/cam_req_mgr/
 ccflags-y += -Idrivers/media/platform/msm/camera/cam_smmu/

@@ -1,3 +1,6 @@
+# needed for trace events (quoted self-include via <trace/define_trace.h>;
+# -nostdinc resolves it only via an explicit -I for this directory)
+ccflags-y += -I$(src)
 obj-$(CONFIG_IPA3) += ipahal/
 
 ifdef CONFIG_X86
