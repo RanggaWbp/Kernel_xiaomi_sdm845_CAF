@@ -711,3 +711,10 @@ CONFIG_BBG=y
 # --- Re:Kernel (Sakion) -----------------------------------------------------
 CONFIG_REKERNEL=y
 # CONFIG_REKERNEL_DEBUG is not set
+
+# arch/arm64/Kconfig declares LITTLE_CPU_MASK and BIG_CPU_MASK as `int` with
+# NO default, so Kconfig always treats them as NEW. Any later make runs
+# silentoldconfig, which then prompts for them and aborts on a runner (EOF).
+# Setting them here keeps the build non-interactive.
+CONFIG_LITTLE_CPU_MASK=255
+CONFIG_BIG_CPU_MASK=0

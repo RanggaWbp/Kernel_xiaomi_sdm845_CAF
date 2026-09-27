@@ -180,19 +180,6 @@ jobs:
 
           make $MAKE_FLAGS ARCH=$KERNEL_ARCH "${{ matrix.defconfig }}" 2>&1 | tee build-${{ matrix.device }}.log
 
-          # This tree has two `int` symbols -- LITTLE_CPU_MASK and
-          # BIG_CPU_MASK (arch/arm64/Kconfig) -- that no defconfig sets, and
-          # that Kconfig marks (NEW). The next `make` runs silentoldconfig,
-          # which then goes INTERACTIVE on them, prints a prompt, gets EOF on
-          # a CI runner and dies with:
-          #     (LITTLE_CPU_MASK) [] (NEW) aborted!
-          #     make[2]: *** [scripts/kconfig/Makefile:39: silentoldconfig] Error 1
-          # This is pre-existing upstream behaviour, not caused by the
-          # integration patches -- it reproduces on a pristine checkout.
-          # olddefconfig answers NEW symbols with their default instead of
-          # prompting, which makes the build step below non-interactive.
-          make ARCH=$KERNEL_ARCH olddefconfig </dev/null 2>&1 | tee -a build-${{ matrix.device }}.log
-
           # Fail loudly if any feature silently dropped out of .config.
           # KSU_SUSFS in particular disappears when THREAD_INFO_IN_TASK is
           # unset, because of its "depends on" in KernelSU/kernel/Kconfig.
