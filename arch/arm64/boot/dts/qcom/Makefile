@@ -81,6 +81,14 @@ dtb-y += \
 	sdm845-4k-panel-cdp.dtb \
 	sdm845-4k-panel-qrd.dtb
 
+endif
+
+# Device DTBs are needed whether or not CONFIG_BUILD_ARM64_DT_OVERLAY is set.
+# They used to sit inside the else branch of that ifeq, so turning the option on
+# dropped every device board from dtb-y. perseus_defconfig is the only defconfig
+# that sets it, and perseus then shipped only generic sdm845 boards with no
+# perseus-* DTB at all. Keep the overlay choice confined to dtbo-y and list the
+# boards unconditionally below.
 dtb-$(CONFIG_MACH_XIAOMI_D5X) += \
 	polaris-p0.dtb \
 	polaris-p0-v2.dtb \
@@ -144,7 +152,6 @@ dtb-$(CONFIG_MACH_XIAOMI_E5) += \
 	perseus-p2-v2.1.dtb \
 	perseus-p3-v2.1.dtb \
 	perseus-mp-v2.1.dtb
-endif
 else
 dtb-$(CONFIG_ARCH_QCOM)	+= apq8016-sbc.dtb msm8916-mtp.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= msm8996-mtp.dtb
