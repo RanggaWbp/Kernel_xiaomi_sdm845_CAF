@@ -29,6 +29,11 @@ extern bool __ksu_is_allow_uid_for_current(uid_t uid);
 extern int ksu_handle_stat(int *dfd, struct filename **filename, int *flags);
 #endif // #ifdef CONFIG_KSU_SUSFS
 
+#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
+extern bool susfs_is_inode_sus_kstat(struct inode *inode, bool *out_is_fuse);
+extern void susfs_sus_kstat_spoof_generic_fillattr(struct inode *inode, struct kstat *stat, u32 result_mask);
+#endif // #ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
+
 void generic_fillattr(struct inode *inode, struct kstat *stat)
 {
 	stat->dev = inode->i_sb->s_dev;
@@ -79,8 +84,6 @@ int vfs_getattr_nosec(struct path *path, struct kstat *stat)
 
 #ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
 	{
-		extern bool susfs_is_inode_sus_kstat(struct inode *inode, bool *out_is_fuse);
-		extern void susfs_sus_kstat_spoof_generic_fillattr(struct inode *inode, struct kstat *stat, u32 result_mask);
 		bool is_fuse = false;
 
 		if (susfs_is_inode_sus_kstat(inode, &is_fuse))
