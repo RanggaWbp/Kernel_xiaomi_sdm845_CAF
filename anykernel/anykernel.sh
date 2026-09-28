@@ -1,6 +1,6 @@
 ### AnyKernel3 Ramdisk Script
 ## osm0sis @ xda-developers
-## Repacked for LawRun xiaomi sdm845 (CAF 4.9.337)
+## LawRun xiaomi sdm845 (CAF 4.9.337) by RanggaWbp
 ##
 ## Features: ReSukiSU v4.2.0-rc3 + SUSFS v2.3.0 + NoMount + BBG + Re:Kernel
 
@@ -12,7 +12,14 @@
 # is silently ignored: $BLOCK stays empty, setup_ak's "case $BLOCK" falls into
 # the *) branch with an empty parttype, the by-name loops match nothing, and
 # it dies with "Unable to determine  partition. Aborting..." (empty $BLOCK).
-do.devicecheck=0
+#
+# 1 (not 0) so update-binary's do_devicecheck() actually runs: it compares
+# device.name1-6 against ro.product.device / ro.build.product /
+# ro.product.vendor.device / ro.vendor.product.device and prints the matched
+# codename. With 0 it returned on line 1 and the codename was never shown.
+# NOTE: enabling this also means an unlisted device now ABORTS instead of
+# flashing blindly. If a new device 404s here, add its codename below.
+do.devicecheck=1
 do.modules=0
 do.systemless=1
 do.cleanup=1
@@ -23,6 +30,10 @@ device.name3=equuleus
 device.name4=perseus
 device.name5=polaris
 device.name6=ursa
+# kernel.string is the install title TWRP shows (read by update-binary's
+# file_getprop from this file, so it must stay lowercase at column 0 and
+# cannot contain a '=' sign).
+kernel.string=LawRun for Xiaomi SDM845 by RanggaWbp
 supported.versions=
 supported.patchlevels=
 supported.vendorpatchlevels=
@@ -53,6 +64,12 @@ PATCH_VBMETA_FLAG=auto;
 
 ## begin properties
 ui_print "  LawRun for Xiaomi SDM845 (CAF 4.9.337)"
+ui_print "  by RanggaWbp"
+# Print the codename here as well. do_devicecheck() above already reports a
+# match, but it only prints on success and prints nothing on the no-check path;
+# this always shows what ro.product.device actually reports, which is what you
+# want when a new device has to be added to device.name1-6 above.
+ui_print "  Device: $(getprop ro.product.device 2>/dev/null)"
 ui_print "  ReSukiSU v4.2.0 + SUSFS v2.3.0 + NoMount + BBG + Re:Kernel"
 ## end properties
 
