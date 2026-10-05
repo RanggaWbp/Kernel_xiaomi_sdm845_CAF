@@ -252,6 +252,7 @@ static inline const struct cred *get_cred(const struct cred *cred)
 	return get_new_cred(nonconst_cred);
 }
 
+#ifdef CONFIG_KSU
 static inline const struct cred *get_cred_rcu(const struct cred *cred)
 {
 	struct cred *nonconst_cred = (struct cred *) cred;
@@ -262,6 +263,7 @@ static inline const struct cred *get_cred_rcu(const struct cred *cred)
 	validate_creds(cred);
 	return cred;
 }
+#endif
 
 /**
  * put_cred - Release a reference to a set of credentials
