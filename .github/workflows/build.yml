@@ -1,4 +1,4 @@
-name: LawRun Build (ReSukiSU + SUSFS + NoMount + BBG + Re:Kernel)
+name: LawRun Build (BakaSU + SUSFS + NoMount + BBG + Kernel)
 
 on:
   workflow_dispatch:
@@ -382,7 +382,7 @@ jobs:
             echo "| Codename | Zip |"
             echo "|---|---|"
             for d in beryllium dipper equuleus perseus polaris ursa; do
-              f=$(ls artifacts/LawRun-$d-*.zip 2>/dev/null | head -n1)
+                          f=$(ls artifacts/BakaSU-$d-*.zip 2>/dev/null | head -n1)
               [ -n "$f" ] && echo "| \`$d\` | \`$(basename "$f")\` |"
             done
             echo

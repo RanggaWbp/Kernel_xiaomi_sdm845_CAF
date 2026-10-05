@@ -2,7 +2,7 @@
 ## osm0sis @ xda-developers
 ## LawRun xiaomi sdm845 (CAF 4.9.337) by RanggaWbp
 ##
-## Features: ReSukiSU v4.2.0-rc3 + SUSFS v2.3.0 + NoMount + BBG + Re:Kernel
+## Features: BakaSU v2025.01.01 + SUSFS v2.3.0 + NoMount + BBG + Kernel
 
 ### AnyKernel properties
 # NOTE: only the key=value lines above this point are read as properties, and
@@ -33,7 +33,7 @@ device.name6=ursa
 # kernel.string is the install title TWRP shows (read by update-binary's
 # file_getprop from this file, so it must stay lowercase at column 0 and
 # cannot contain a '=' sign).
-kernel.string=LawRun for Xiaomi SDM845 by RanggaWbp
+kernel.string=BakaSU for Xiaomi SDM845 by RanggaWbp
 supported.versions=
 supported.patchlevels=
 supported.vendorpatchlevels=
@@ -70,7 +70,7 @@ ui_print "  by RanggaWbp"
 # this always shows what ro.product.device actually reports, which is what you
 # want when a new device has to be added to device.name1-6 above.
 ui_print "  Device: $(getprop ro.product.device 2>/dev/null)"
-ui_print "  ReSukiSU v4.2.0 + SUSFS v2.3.0 + NoMount + BBG + Re:Kernel"
+ui_print "  BakaSU v2025.01.01 + SUSFS v2.3.0 + NoMount + BBG + Kernel"
 ## end properties
 
 dump_boot
