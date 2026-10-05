@@ -1,66 +1,341 @@
 name: BakaSU Kernel Build
 
 on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag (empty = auto: v<run_number>-<DDMMYYYY>)"
+        required: false
+        type: string
   push:
-    branches: [ master ]
-  pull_request:
-    branches: [ master ]
-  workflow_dispatch:  # Manual trigger button in GitHub Actions
+    branches:
+      - master
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bakasu-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CLANG_REPO: https://github.com/kdrag0n/proton-clang
+  GCC_64_SOURCE: https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9
+  GCC_64_BRANCH: android12L-release
+  GCC_32_SOURCE: https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9
+  GCC_32_BRANCH: android12L-release
+  AK3_SOURCE: https://github.com/osm0sis/AnyKernel3.git
+  KERNEL_ARCH: arm64
+  REPO: ${{ github.repository }}
+  BRANCH: ${{ github.ref_name }}
+  RUN_ID: ${{ github.run_number }}
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-    env:
-      KERNEL_ARCH: arm64
-      CROSS_COMPILE: aarch64-linux-gnu-
-      CROSS_COMPILE_ARM32: arm-linux-gnueabi-
-      REPO: ${{ github.repository }}
-      BRANCH: ${{ github.ref_name }}
-      RUN_ID: ${{ github.run_number }}
+    name: Build ${{ matrix.device }}
+    runs-on: ubuntu-22.04
     strategy:
+      fail-fast: false
       matrix:
-        defconfig:
-          - beryllium
-          - dipper
-          - equuleus
-          - perseus
-          - polaris
-          - ursa
+        include:
+          - device: beryllium
+            defconfig: beryllium_defconfig
+          - device: dipper
+            defconfig: dipper_defconfig
+          - device: equuleus
+            defconfig: equuleus_defconfig
+          - device: perseus
+            defconfig: perseus_defconfig
+          - device: polaris
+            defconfig: polaris_defconfig
+          - device: ursa
+            defconfig: ursa_defconfig
+
     steps:
-      - name: Checkout kernel source
+      - name: Checkout (with submodules)
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           submodules: recursive
+          lfs: false
 
-      - name: Set up build environment
+      - name: Install build deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y git bc bison flex libssl-dev make libncurses-dev qemu-utils \
-            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
-            gcc-arm-linux-gnueabi g++-arm-linux-gnueabi
+          sudo apt-get install -y bc bison build-essential ccache cpio curl flex \
+            git libssl-dev libelf-dev make python3 rsync zip zstd
 
-      - name: Pull submodules
-        run: git submodule update --init --recursive
-
-      - name: Configure and compile kernel
+      - name: Free disk space
         run: |
-          export CROSS_COMPILE_ARM32=${{ env.CROSS_COMPILE_ARM32 }}
-          make ARCH=${{ env.KERNEL_ARCH }} CROSS_COMPILE=${{ env.CROSS_COMPILE }} ${{ matrix.defconfig }}_defconfig
-          make ARCH=${{ env.KERNEL_ARCH }} CROSS_COMPILE=${{ env.CROSS_COMPILE }} -j$(nproc) Image.gz-dtb
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          df -h /
+
+      - name: Apply 4.9 backport patches
+        run: |
+          set -eu
+          apply_if_needed() {
+            p="$1"; d="${2:-.}"
+            if git -C "$d" apply --check -R "$p" 2>/dev/null; then
+              echo "already applied: $p"
+            else
+              git -C "$d" apply -v "$p"
+            fi
+          }
+          apply_if_needed patches/backport/0002-rekernel-linux-4.9-cgroup-task-frozen.patch .
+          apply_if_needed ../patches/backport/0001-baseband-guard-linux-4.9-no-blk-h.patch Baseband-guard
+          grep -q 'KERNEL_VERSION(5, 11, 0)' Baseband-guard/kernel_compat.h \
+            && echo "BBG backport in place"
+
+      - name: Verify feature patches are present
+        run: |
+          set -eux
+          grep -q '#define SUSFS_VERSION "'"'"'[^"'"']*'"'"'' include/linux/susfs.h
+          test -f fs/susfs.c
+          test -f drivers/net/rekernel/rekernel.c
+          for f in security/baseband-guard/kernel_compat.h; do test -f "$f"; done
+          echo "All patch artefacts present"
+
+      - name: Cache toolchain
+        id: tc-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            tc/clang
+            tc/gcc-64
+            tc/gcc-32
+          key: tc-protonclang-gcc4.9-v2
+
+      - name: Fetch ProtonClang
+        if: steps.tc-cache.outputs.cache-hit != 'true'
+        run: |
+          set -eux
+          mkdir -p tc
+          git clone --depth 1 "$CLANG_REPO" tc/clang
+          test -x tc/clang/bin/clang
+          tc/clang/bin/clang --version | head -n2
+
+      - name: Fetch AOSP GCC 4.9 (aarch64 + arm)
+        if: steps.tc-cache.outputs.cache-hit != 'true'
+        run: |
+          set -eux
+          git clone --depth 1 -b "$GCC_64_BRANCH" "$GCC_64_SOURCE" tc/gcc-64
+          git clone --depth 1 -b "$GCC_32_BRANCH" "$GCC_32_SOURCE" tc/gcc-32
+          tc/gcc-64/bin/aarch64-linux-android-gcc --version | head -n1
+
+      - name: Show toolchain
+        run: |
+          tc/clang/bin/clang --version | head -n1
+          tc/gcc-64/bin/aarch64-linux-android-gcc --version | head -n1
+
+      - name: Cache AnyKernel3
+        id: ak-cache
+        uses: actions/cache@v4
+        with:
+          path: tc/AnyKernel3
+          key: anykernel3-v3
+
+      - name: Fetch AnyKernel3
+        if: steps.ak-cache.outputs.cache-hit != 'true'
+        run: git clone --depth 1 "$AK3_SOURCE" tc/AnyKernel3
+
+      - name: Build kernel
+        run: |
+          set -o pipefail
+          MAKE_FLAGS="-j$(nproc)"
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export PATH="$GITHUB_WORKSPACE/tc/gcc-64/bin:$GITHUB_WORKSPACE/tc/gcc-32/bin:/usr/bin:/bin:$PATH"
+          export HOSTCC=gcc
+          export HOSTCXX=g++
+          export CC="$GITHUB_WORKSPACE/tc/clang/bin/clang"
+          export CLANG_TRIPLE=aarch64-linux-gnu-
+          export CROSS_COMPILE="$GITHUB_WORKSPACE/tc/gcc-64/bin/aarch64-linux-android-"
+          export CROSS_COMPILE_ARM32="$GITHUB_WORKSPACE/tc/gcc-32/bin/arm-linux-androideabi-"
+
+          make $MAKE_FLAGS ARCH=$KERNEL_ARCH "${{ matrix.defconfig }}" 2>&1 | tee build-${{ matrix.device }}.log
+
+          for sym in KSU KSU_SUSFS THREAD_INFO_IN_TASK NOMOUNT BBG REKERNEL; do
+            grep -q "CONFIG_${sym}=y" .config || { echo "::error::CONFIG_${sym} missing from .config"; exit 1; }
+          done
+          grep -E "^CONFIG_MACH_XIAOMI_.*=y" .config \
+            || { echo "::error::no CONFIG_MACH_XIAOMI_* board symbol in .config"; exit 1; }
+          echo "All feature configs present in .config"
+
+          make $MAKE_FLAGS \
+            ARCH=$KERNEL_ARCH \
+            HOSTCC=gcc \
+            HOSTCXX=g++ \
+            CC="$GITHUB_WORKSPACE/tc/clang/bin/clang" \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE="$GITHUB_WORKSPACE/tc/gcc-64/bin/aarch64-linux-android-" \
+            CROSS_COMPILE_ARM32="$GITHUB_WORKSPACE/tc/gcc-32/bin/arm-linux-androideabi-" \
+            dtbs \
+            2>&1 | tee -a build-${{ matrix.device }}.log
+
+          echo "=== ${{ matrix.device }} DTBs ==="
+          ls arch/arm64/boot/dts/qcom/ | grep -E "^${{ matrix.device }}.*\.dtb$" \
+            || echo "NONE: no ${{ matrix.device }}-*.dtb was built"
+
+          make $MAKE_FLAGS \
+            ARCH=$KERNEL_ARCH \
+            HOSTCC=gcc \
+            HOSTCXX=g++ \
+            CC="$GITHUB_WORKSPACE/tc/clang/bin/clang" \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE="$GITHUB_WORKSPACE/tc/gcc-64/bin/aarch64-linux-android-" \
+            CROSS_COMPILE_ARM32="$GITHUB_WORKSPACE/tc/gcc-32/bin/arm-linux-androideabi-" \
+            Image.gz-dtb \
+            2>&1 | tee -a build-${{ matrix.device }}.log
+
+      - name: Get runtime versions
+        id: versions
+        run: |
+          KERNEL_VERSION=$(make kernelversion 2>/dev/null || echo unknown)
+          KERNEL_RELEASE=$(make kernelrelease 2>/dev/null || echo unknown)
+          if [ -d "BakaSU" ]; then
+            KASU_VERSION=$(cd BakaSU && git describe --tags 2>/dev/null || git rev-parse --short HEAD)
+          else
+            KASU_VERSION=none
+          fi
+          SUSFS_VERSION=$(grep -oP '(?<=SUSFS_VERSION ")[^"]+' include/linux/susfs.h 2>/dev/null || echo unknown)
+          echo "KERNEL_VERSION=$KERNEL_VERSION" >> $GITHUB_OUTPUT
+          echo "KERNEL_RELEASE=$KERNEL_RELEASE" >> $GITHUB_OUTPUT
+          echo "KASU_VERSION=$KASU_VERSION" >> $GITHUB_OUTPUT
+          echo "SUSFS_VERSION=$SUSFS_VERSION" >> $GITHUB_OUTPUT
+          echo "KERNEL_VERSION=$KERNEL_VERSION" >> $GITHUB_ENV
+          echo "KERNEL_RELEASE=$KERNEL_RELEASE" >> $GITHUB_ENV
+          echo "KASU_VERSION=$KASU_VERSION" >> $GITHUB_ENV
+          echo "SUSFS_VERSION=$SUSFS_VERSION" >> $GITHUB_ENV
+          echo "## Build Info" >> $GITHUB_STEP_SUMMARY
+          echo "- Device: ${{ matrix.device }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Kernel: \`$KERNEL_VERSION\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Release: \`$KERNEL_RELEASE\`" >> $GITHUB_STEP_SUMMARY
+          echo "- BakaSU: \`$KASU_VERSION\`" >> $GITHUB_STEP_SUMMARY
+          echo "- SUSFS: \`$SUSFS_VERSION\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Branch: \`$BRANCH\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Run: [#$RUN_ID](https://github.com/$REPO/actions/runs/$RUN_ID)" >> $GITHUB_STEP_SUMMARY
+
+      - name: Report feature-related warnings
+        if: always()
+        run: |
+          grep -iE "(susfs|nomount|baseband_guard|rekernel|kernelsu).*(warning|error)" \
+            "build-${{ matrix.device }}.log" | head -n 40 || echo "No feature-related warnings."
 
       - name: Package with AnyKernel3
         run: |
-          mkdir -p ak3
-          cp anykernel/anykernel.sh ak3/
-          KASU_VERSION=$(cd BakaSU && git describe --tags 2>/dev/null || git rev-parse --short HEAD)
-          SUSFS_VERSION=$(grep -oP '(?<=SUSFS_VERSION\s")[^"]+' include/linux/susfs.h)
-          sed -i "s|^kernel\.string=.*|kernel.string=BakaSU for Xiaomi SDM845 by RanggaWbp|" ak3/anykernel.sh
-          sed -i "s|BakaSU v[0-9.]\+ + SUSFS v[0-9.]\+|BakaSU ${KASU_VERSION} + SUSFS ${SUSFS_VERSION}|g" ak3/anykernel.sh
-          cd ak3 && bash ak3-core.sh
+          set -eux
+          AK3="$GITHUB_WORKSPACE/tc/AnyKernel3"
+          ZIP_NAME="BakaSU-${{ matrix.device }}-${{ env.KERNEL_VERSION }}-${RUN_ID}.zip"
+          echo "ZIP_NAME=$ZIP_NAME" >> "$GITHUB_ENV"
 
-      - name: Upload artifact
+          cd "$AK3"
+          rm -rf .git .github Image Image-dtb Image.gz Image.bz2 Image.lzo Image.lzma Image.xz Image.lz4 kernel
+          cp "$GITHUB_WORKSPACE/arch/arm64/boot/Image.gz-dtb" .
+          cp "$GITHUB_WORKSPACE/anykernel/anykernel.sh" .
+          head -n1 anykernel.sh
+          test -f Image.gz-dtb || { echo "::error::Image.gz-dtb missing"; exit 1; }
+
+          want=$(find "$GITHUB_WORKSPACE/arch/arm64/boot/dts" -name '*.dtb' | wc -l)
+          got=$(python3 -c "import sys;d=open(sys.argv[1],'rb').read();print(d.count(b'\xd0\x0d\xfe\xed'))" Image.gz-dtb)
+          echo "DTBs: $got in image, $want in tree"
+          [ "$got" = "$want" ] || { echo "::error::only $got of $want DTBs in Image.gz-dtb"; exit 1; }
+
+          sed -i "s|^kernel\.string=.*|kernel.string=BakaSU for Xiaomi SDM845 by RanggaWbp|" anykernel.sh
+          sed -i "s|BakaSU v[0-9.]\+ + SUSFS v[0-9.]\+|BakaSU $KASU_VERSION + SUSFS $SUSFS_VERSION|g" anykernel.sh
+
+          zip -r9 "$GITHUB_WORKSPACE/$ZIP_NAME" ./* -x .git -x .github -x README.md
+          cd "$GITHUB_WORKSPACE"
+          test -f "$ZIP_NAME"
+          unzip -l "$ZIP_NAME" | grep -qE " Image\.gz-dtb$" \
+            || { echo "::error::$ZIP_NAME has no Image.gz-dtb"; exit 1; }
+          if unzip -l "$ZIP_NAME" | grep -qE " (Image|Image-dtb|Image\.gz|Image\.bz2|Image\.lzo|Image\.lzma|Image\.xz|Image\.lz4)$"; then
+            echo "::error::$ZIP_NAME contains a bare Image that would shadow Image.gz-dtb"
+            exit 1
+          fi
+          unzip -l "$ZIP_NAME" | grep -E "Image|anykernel.sh"
+
+      - name: Upload build artifact (internal hand-off only)
         uses: actions/upload-artifact@v4
         with:
-          name: kernel-zip-${{ matrix.defconfig }}-${RUN_ID}
-          path: ak3/*.zip
+          name: kernel-${{ matrix.device }}
+          path: |
+            BakaSU-${{ matrix.device }}-*.zip
+            build-${{ matrix.device }}.log
+          retention-days: 1
+          if-no-files-found: error
+
+  release:
+    name: Publish single release with all 6 zips
+    needs: build
+    runs-on: ubuntu-22.04
+    if: always() && needs.build.result == 'success'
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: kernel-*
+          merge-multiple: true
+
+      - name: Verify all 6 zips present
+        run: |
+          set -eu
+          n=$(ls artifacts/BakaSU-*.zip 2>/dev/null | wc -l)
+          echo "Found $n zips:"
+          ls -la artifacts/BakaSU-*.zip
+          if [ "$n" -ne 6 ]; then
+            echo "::error::Expected 6 zips, found $n"
+            exit 1
+          fi
+
+      - name: Determine release tag
+        id: tag
+        run: |
+          set -eu
+          TAG='${{ inputs.release_tag }}'
+          if [ -z "$TAG" ]; then
+            TAG="v${{ github.run_number }}-$(date +%d%m%Y)"
+          fi
+          echo "TAG=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Build release notes
+        run: |
+          {
+            echo "## BakaSU — Xiaomi SDM845 (CAF 4.9.337)"
+            echo
+            echo "Built from \`${{ github.ref_name }}\` @ \`${{ github.sha }}\`."
+            echo
+            echo "| Codename | Zip |"
+            echo "|---|---|"
+            for d in beryllium dipper equuleus perseus polaris ursa; do
+              f=$(ls artifacts/BakaSU-$d-*.zip 2>/dev/null | head -n1)
+              [ -n "$f" ] && echo "| \`$d\` | \`$(basename "$f")\` |"
+            done
+            echo
+            echo "### Included"
+            echo "- BakaSU ($KASU_VERSION)"
+            echo "- SUSFS ($SUSFS_VERSION)"
+            echo "- NoMount (maxsteeel/nomount)"
+            echo "- Baseband-guard (vc-teahouse/Baseband-guard)"
+            echo "- Re:Kernel"
+            echo
+            echo "Toolchain: ProtonClang (clang-13) + AOSP GCC 4.9."
+            echo
+            echo "> Flash with AnyKernel3. BBG does not block \`boot\`/\`recovery\`, so normal flashing works."
+          } > artifacts/NOTES.md
+
+      - name: Publish to one GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.TAG }}
+          name: BakaSU ${{ steps.tag.outputs.TAG }}
+          body_path: artifacts/NOTES.md
+          draft: false
+          prerelease: true
+          files: |
+            artifacts/BakaSU-beryllium-*.zip
+            artifacts/BakaSU-dipper-*.zip
+            artifacts/BakaSU-equuleus-*.zip
+            artifacts/BakaSU-perseus-*.zip
+            artifacts/BakaSU-polaris-*.zip
+            artifacts/BakaSU-ursa-*.zip
