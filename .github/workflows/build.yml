@@ -13,7 +13,6 @@ env:
   RUN_ID: ${{ github.run_number }}
   KERNEL_ARCH: arm64
   CROSS_COMPILE: aarch64-linux-gnu-
-  CC: gcc
 
 jobs:
   build:
@@ -38,16 +37,14 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y git bc bison flex libssl-dev make libncurses-dev qemu-utils gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
-          # Export variables for subsequent steps
-          echo "KERNEL_ARCH=arm64" >> $GITHUB_ENV
-          echo "CROSS_COMPILE=aarch64-linux-gnu-" >> $GITHUB_ENV
-          echo "CC=gcc" >> $GITHUB_ENV
 
       - name: Pull submodules
         run: git submodule update --init --recursive
 
-      - name: Generate build metadata
+      - name: Configure and compile kernel
         run: |
+          make ARCH=${{ env.KERNEL_ARCH }} CROSS_COMPILE=${{ env.CROSS_COMPILE }} ${{ matrix.defconfig }}_defconfig
+          make ARCH=${{ env.KERNEL_ARCH }} CROSS_COMPILE=${{ env.CROSS_COMPILE }} -j$(nproc) Image.gz-dtb
           KERNEL_VERSION=$(make kernelversion 2>/dev/null || echo unknown)
           KERNEL_RELEASE=$(make kernelrelease 2>/dev/null || echo unknown)
           if [ -d "BakaSU" ]; then
@@ -61,19 +58,8 @@ jobs:
             SUSFS_VERSION=unknown
           fi
           BUILD_TIMESTAMP=$(date -u +%Y%m%d_%H%M%S)
-          printf 'KERNEL_VERSION=%s\nKERNEL_RELEASE=%s\nKASU_VERSION=%s\nSUSFS_VERSION=%s\nBUILD_TIMESTAMP=%s\n' \
-            "$KERNEL_VERSION" "$KERNEL_RELEASE" "$KASU_VERSION" "$SUSFS_VERSION" "$BUILD_TIMESTAMP" \
-            > build.env
-
-      - name: Configure kernel
-        run: |
-          make ARCH=${KERNEL_ARCH} CROSS_COMPILE=${CROSS_COMPILE} ${DEFCONFIG}
-
-      - name: Compile kernel
-        run: |
-          make ARCH=${KERNEL_ARCH} CROSS_COMPILE=${CROSS_COMPILE} -j$(nproc) Image.gz-dtb
-          source build.env
           echo "## Build Info" >> $GITHUB_STEP_SUMMARY
+          echo "- Device: ${{ matrix.defconfig }}" >> $GITHUB_STEP_SUMMARY
           echo "- Kernel: `${KERNEL_VERSION}`" >> $GITHUB_STEP_SUMMARY
           echo "- Release: `${KERNEL_RELEASE}`" >> $GITHUB_STEP_SUMMARY
           echo "- BakaSU: `${KASU_VERSION}`" >> $GITHUB_STEP_SUMMARY
@@ -85,7 +71,8 @@ jobs:
         run: |
           mkdir -p ak3
           cp anykernel/anykernel.sh ak3/
-          source build.env
+          KASU_VERSION=$(cd BakaSU && git describe --tags 2>/dev/null || git rev-parse --short HEAD)
+          SUSFS_VERSION=$(grep -oP '(?<=SUSFS_VERSION\s")[^"]+' include/linux/susfs.h)
           sed -i "s|^kernel\.string=.*|kernel.string=BakaSU for Xiaomi SDM845 by RanggaWbp|" ak3/anykernel.sh
           sed -i "s|BakaSU v[0-9.]\+ + SUSFS v[0-9.]\+|BakaSU ${KASU_VERSION} + SUSFS ${SUSFS_VERSION}|g" ak3/anykernel.sh
           cd ak3 && bash ak3-core.sh
@@ -93,5 +80,5 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: kernel-zip-${RUN_ID}
+          name: kernel-zip-${{ matrix.defconfig }}-${RUN_ID}
           path: ak3/*.zip
