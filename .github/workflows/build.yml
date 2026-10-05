@@ -5,6 +5,7 @@ on:
     branches: [ master ]
   pull_request:
     branches: [ master ]
+  workflow_dispatch:  # Manual trigger button in GitHub Actions
 
 env:
   REPO: ${{ github.repository }}
@@ -32,9 +33,9 @@ jobs:
 
       - name: Set up build environment
         run: |
-          sudo -S -p '' add-apt-repository ppa:phablet-team/ppa -y
-          sudo -S -p '' apt-get update
-          sudo -S -p '' apt-get install -y git bc bison flex libssl-dev make libncurses5 libncurses5-dev qemu-utils
+          sudo add-apt-repository ppa:phablet-team/ppa -y
+          sudo apt-get update
+          sudo apt-get install -y git bc bison flex libssl-dev make libncurses5 libncurses5-dev qemu-utils
 
       - name: Pull submodules
         run: git submodule update --init --recursive
@@ -67,12 +68,12 @@ jobs:
           make -j$(nproc) Image.gz-dtb
           source build.env
           echo "## Build Info" >> $GITHUB_STEP_SUMMARY
-          echo "- Kernel: \`${KERNEL_VERSION}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- Release: \`${KERNEL_RELEASE}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- BakaSU: \`${KASU_VERSION}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- SUSFS: \`${SUSFS_VERSION}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- Branch: \`${BRANCH}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- Run: [\#${RUN_ID}](https://github.com/${REPO}/actions/runs/${RUN_ID})" >> $GITHUB_STEP_SUMMARY
+          echo "- Kernel: `${KERNEL_VERSION}`" >> $GITHUB_STEP_SUMMARY
+          echo "- Release: `${KERNEL_RELEASE}`" >> $GITHUB_STEP_SUMMARY
+          echo "- BakaSU: `${KASU_VERSION}`" >> $GITHUB_STEP_SUMMARY
+          echo "- SUSFS: `${SUSFS_VERSION}`" >> $GITHUB_STEP_SUMMARY
+          echo "- Branch: `${BRANCH}`" >> $GITHUB_STEP_SUMMARY
+          echo "- Run: [#${RUN_ID}](https://github.com/${REPO}/actions/runs/${RUN_ID})" >> $GITHUB_STEP_SUMMARY
 
       - name: Package with AnyKernel3
         run: |
