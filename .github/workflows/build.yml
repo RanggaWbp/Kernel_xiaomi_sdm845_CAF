@@ -48,6 +48,19 @@ jobs:
           restore-keys: |
             tc-protonclang-gcc4.9-v2
 
+      - name: Download toolchain if missing
+        if: steps.cache-toolchain.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p tc
+          cd tc
+          # Download proton-clang
+          git clone --depth 1 https://github.com/kdrag0n/proton-clang.git clang
+          # Download gcc toolchain
+          wget -q https://ufo.elf9.dev/toolchain/aarch64-linux-gnu-gcc-9.4.0.tar.xz
+          tar xf aarch64-linux-gnu-gcc-9.4.0.tar.xz
+          mv aarch64-linux-gnu tc/gcc-64
+          rm aarch64-linux-gnu-gcc-9.4.0.tar.xz
+
       - name: Set up build environment
         run: |
           sudo apt-get update
