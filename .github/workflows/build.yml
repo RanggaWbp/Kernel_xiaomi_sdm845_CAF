@@ -1,0 +1,61 @@
+name: Kernel Build
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        defconfig:
+          - beryllium
+          - dipper
+          - equuleus
+          - perseus
+          - polaris
+          - ursa
+    steps:
+      - name: Checkout kernel source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up build environment
+        run: |
+          sudo add-apt-repository ppa:phablet-team/ppa -y
+          sudo apt-get update
+          sudo apt-get install -y git bc bison flex libssl-dev make libncurses5 libncurses5-dev qemu-utils
+
+      - name: Pull submodules
+        run: git submodule update --init --recursive
+
+      - name: Configure kernel
+        run: |
+          make ${DEFCONFIG}
+
+      - name: Compile kernel
+        run: |
+          make -j$(nproc) Image.gz-dtb
+
+      - name: Package with AnyKernel3
+        run: |
+          mkdir -p ak3
+          cp anykernel/anykernel.sh ak3/
+          # Replace ReSukiSU references with BakaSU
+          sed -i 's/ReSukiSU/BakaSU/g' ak3/anykernel.sh
+          # Replace kernel.string
+          sed -i 's/kernel\.string=LawRun/kernel.string=BakaSU for Xiaomi SDM845 by RanggaWbp/g' ak3/anykernel.sh
+          # Remove Lawrun embellishments from UI print statements
+          sed -i '/LawRun/d' ak3/anykernel.sh
+          # Build the zip
+          cd ak3 && bash ak3-core.sh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-zip
+          path: ak3/*.zip
