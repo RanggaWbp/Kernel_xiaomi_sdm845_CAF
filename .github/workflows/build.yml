@@ -196,14 +196,31 @@ jobs:
       - name: Get runtime versions
         id: versions
         run: |
-          KERNEL_VERSION=$(make kernelversion 2>/dev/null || echo unknown)
-          KERNEL_RELEASE=$(make kernelrelease 2>/dev/null || echo unknown)
+          set -eu
+          # ARCH=arm64 is mandatory: bare `make kernelrelease` falls back to x86,
+          # finds no .config, and runs silentoldconfig interactively. Its prompt
+          # output ("* Restart config...", "choice[1-6?]: aborted!") contains
+          # lines starting with '*', which are not valid KEY=VALUE and make
+          # Actions reject the whole GITHUB_ENV file with "Invalid format '*'".
+          export ARCH=arm64
+          KERNEL_VERSION=$(make -s kernelversion 2>/dev/null | tail -n1)
+          KERNEL_RELEASE=$(make -s kernelrelease 2>/dev/null | tail -n1)
           if [ -d "BakaSU" ]; then
-            KASU_VERSION=$(cd BakaSU && git describe --tags 2>/dev/null || git rev-parse --short HEAD)
+            KASU_VERSION=$(cd BakaSU && git describe --tags --always 2>/dev/null || echo unknown)
           else
             KASU_VERSION=none
           fi
-          SUSFS_VERSION=$(grep -oP '(?<=SUSFS_VERSION \")[^\"]+' include/linux/susfs.h 2>/dev/null || echo unknown)
+          SUSFS_VERSION=$(sed -n 's/^#define[[:space:]]*SUSFS_VERSION[[:space:]]*"\(.*\)"/\1/p' include/linux/susfs.h | head -n1)
+          SUSFS_VERSION=${SUSFS_VERSION:-unknown}
+          # Anything reaching GITHUB_ENV must be a non-empty single line with
+          # no newline or '=' that would be read as a second key=value pair.
+          for v in KERNEL_VERSION KERNEL_RELEASE KASU_VERSION SUSFS_VERSION; do
+            eval "val=\${$v}"
+            if [ -z "$val" ] || [ "$(printf '%s' "$val" | wc -l)" -ne 0 ]; then
+              echo "::error::$v is empty or multi-line: '$val'"
+              exit 1
+            fi
+          done
           echo "KERNEL_VERSION=$KERNEL_VERSION" >> $GITHUB_OUTPUT
           echo "KERNEL_RELEASE=$KERNEL_RELEASE" >> $GITHUB_OUTPUT
           echo "KASU_VERSION=$KASU_VERSION" >> $GITHUB_OUTPUT
