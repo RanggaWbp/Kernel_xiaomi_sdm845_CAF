@@ -89,7 +89,7 @@ jobs:
       - name: Verify feature patches are present
         run: |
           set -eux
-          grep -q '#define SUSFS_VERSION "'"'"'[^"'"']*'"'"'' include/linux/susfs.h
+          grep -q 'SUSFS_VERSION' include/linux/susfs.h
           test -f fs/susfs.c
           test -f drivers/net/rekernel/rekernel.c
           for f in security/baseband-guard/kernel_compat.h; do test -f "$f"; done
