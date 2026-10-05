@@ -8,9 +8,9 @@ on:
   workflow_dispatch:  # Manual trigger button in GitHub Actions
 
 env:
-  REPO: ${{ github.repository }}
-  BRANCH: ${{ github.ref_name }}
-  RUN_ID: ${{ github.run_number }}
+      REPO: ${{ github.repository }}
+      BRANCH: ${{ github.ref_name }}
+      RUN_ID: ${{ github.run_number }}
 
 jobs:
   build:
@@ -78,11 +78,11 @@ jobs:
 
       - name: Configure kernel
         run: |
-          make ${DEFCONFIG}
+          make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} ${DEFCONFIG}
 
       - name: Compile kernel
         run: |
-          make -j$(nproc) Image.gz-dtb
+          make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} -j$(nproc) Image.gz-dtb
           source build.env
           echo "## Build Info" >> $GITHUB_STEP_SUMMARY
           echo "- Kernel: `${KERNEL_VERSION}`" >> $GITHUB_STEP_SUMMARY
