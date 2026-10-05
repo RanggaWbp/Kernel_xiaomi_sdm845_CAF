@@ -43,29 +43,9 @@ jobs:
 
       - name: Configure and compile kernel
         run: |
+          export CROSS_COMPILE_ARM32=${{ env.CROSS_COMPILE_ARM32 }}
           make ARCH=${{ env.KERNEL_ARCH }} CROSS_COMPILE=${{ env.CROSS_COMPILE }} ${{ matrix.defconfig }}_defconfig
           make ARCH=${{ env.KERNEL_ARCH }} CROSS_COMPILE=${{ env.CROSS_COMPILE }} -j$(nproc) Image.gz-dtb
-          KERNEL_VERSION=$(make kernelversion 2>/dev/null || echo unknown)
-          KERNEL_RELEASE=$(make kernelrelease 2>/dev/null || echo unknown)
-          if [ -d "BakaSU" ]; then
-            KASU_VERSION=$(cd BakaSU && git describe --tags 2>/dev/null || git rev-parse --short HEAD)
-          else
-            KASU_VERSION=none
-          fi
-          if [ -f "include/linux/susfs.h" ]; then
-            SUSFS_VERSION=$(grep -oP '(?<=SUSFS_VERSION\s")[^"]+' include/linux/susfs.h)
-          else
-            SUSFS_VERSION=unknown
-          fi
-          BUILD_TIMESTAMP=$(date -u +%Y%m%d_%H%M%S)
-          echo "## Build Info" >> $GITHUB_STEP_SUMMARY
-          echo "- Device: ${{ matrix.defconfig }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Kernel: `${KERNEL_VERSION}`" >> $GITHUB_STEP_SUMMARY
-          echo "- Release: `${KERNEL_RELEASE}`" >> $GITHUB_STEP_SUMMARY
-          echo "- BakaSU: `${KASU_VERSION}`" >> $GITHUB_STEP_SUMMARY
-          echo "- SUSFS: `${SUSFS_VERSION}`" >> $GITHUB_STEP_SUMMARY
-          echo "- Branch: `${BRANCH}`" >> $GITHUB_STEP_SUMMARY
-          echo "- Run: [#${RUN_ID}](https://github.com/${REPO}/actions/runs/${RUN_ID})" >> $GITHUB_STEP_SUMMARY
 
       - name: Package with AnyKernel3
         run: |
