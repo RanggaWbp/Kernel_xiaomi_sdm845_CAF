@@ -83,6 +83,14 @@ jobs:
           }
           apply_if_needed patches/backport/0002-rekernel-linux-4.9-cgroup-task-frozen.patch .
           apply_if_needed ../patches/backport/0001-baseband-guard-linux-4.9-no-blk-h.patch Baseband-guard
+          # DroidSpaces (ravindu644/droidspaces-oss): source tree is already
+          # patched in-tree; source of truth is the running tree, committed as
+          # patches/droidspaces/*.patch. No submodule: droidspaces-oss is a
+          # userspace/container app (~25 MB), not kernel code, so a kernel
+          # submodule would bloat the tree for zero build benefit.
+          for p in patches/droidspaces/*.patch; do
+            apply_if_needed "$p" .
+          done
           grep -q 'KERNEL_VERSION(5, 11, 0)' Baseband-guard/kernel_compat.h \
             && echo "BBG backport in place"
 
@@ -93,6 +101,11 @@ jobs:
           test -f fs/susfs.c
           test -f drivers/net/rekernel/rekernel.c
           for f in security/baseband-guard/kernel_compat.h; do test -f "$f"; done
+          # DroidSpaces artefacts: xt_qtaguid panic fix + cgroup prefix restore.
+          ! grep -q 'dev_get_stats(iface_entry->net_dev' net/netfilter/xt_qtaguid.c \
+            || { echo "::error::xt_qtaguid.c DroidSpaces patch missing"; exit 1; }
+          grep -q 'kernfs_create_link(cgrp->kn, name, kn)' kernel/cgroup.c \
+            || { echo "::error::cgroup.c DroidSpaces patch missing"; exit 1; }
           echo "All patch artefacts present"
 
       - name: Cache toolchain
@@ -162,6 +175,17 @@ jobs:
           done
           grep -E "^CONFIG_MACH_XIAOMI_.*=y" .config \
             || { echo "::error::no CONFIG_MACH_XIAOMI_* board symbol in .config"; exit 1; }
+          # DroidSpaces namespace/cgroup/netfilter surface. Checked on the real
+          # .config so a dropped fragment fails the build instead of silently
+          # shipping a kernel that cannot run containers.
+          for sym in USER_NS PID_NS UTS_NS IPC_NS NET_NS CGROUPS MEMCG \
+                     CGROUP_PIDS CGROUP_DEVICE VETH BRIDGE_NETFILTER \
+                     NF_CT_NETLINK SYSVIPC POSIX_MQUEUE OVERLAY_FS; do
+            grep -q "^CONFIG_${sym}=y" .config \
+              || { echo "::error::CONFIG_${sym} missing from .config (DroidSpaces)"; exit 1; }
+          done
+          grep -q "^# CONFIG_ANDROID_PARANOID_NETWORK is not set" .config \
+            || { echo "::error::ANDROID_PARANOID_NETWORK still enabled; container networking breaks"; exit 1; }
           echo "All feature configs present in .config"
 
           # 3. Build kernel with dtbs
@@ -247,7 +271,7 @@ jobs:
       - name: Report feature-related warnings
         if: always()
         run: |
-          grep -iE "(susfs|nomount|baseband_guard|rekernel|kernelsu).*(warning|error)" \
+          grep -iE "(susfs|nomount|baseband_guard|rekernel|kernelsu|qtaguid|droidspace|cgroup).*(warning|error)" \
             "build-${{ matrix.device }}.log" | head -n 40 || echo "No feature-related warnings."
 
       - name: Package with AnyKernel3
@@ -376,6 +400,7 @@ jobs:
             echo "- NoMount (maxsteeel/nomount)"
             echo "- Baseband-guard (vc-teahouse/Baseband-guard)"
             echo "- Re:Kernel"
+            echo "- DroidSpaces (ravindu644/droidspaces-oss) — namespaces, cgroups, overlayfs, NAT networking"
             echo
             echo "> Flash with AnyKernel3. BBG does not block \`boot\`/\`recovery\`, so normal flashing works."
           } > artifacts/NOTES.md
