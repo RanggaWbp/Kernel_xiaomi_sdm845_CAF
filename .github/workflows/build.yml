@@ -60,11 +60,11 @@ jobs:
 
       - name: Configure kernel
         run: |
-          make ${DEFCONFIG}
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- ${DEFCONFIG}
 
       - name: Compile kernel
         run: |
-          make -j$(nproc) Image.gz-dtb
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc) Image.gz-dtb
           source build.env
           echo "## Build Info" >> $GITHUB_STEP_SUMMARY
           echo "- Kernel: `${KERNEL_VERSION}`" >> $GITHUB_STEP_SUMMARY
