@@ -7,16 +7,15 @@ on:
     branches: [ master ]
   workflow_dispatch:  # Manual trigger button in GitHub Actions
 
-env:
-  REPO: ${{ github.repository }}
-  BRANCH: ${{ github.ref_name }}
-  RUN_ID: ${{ github.run_number }}
-  KERNEL_ARCH: arm64
-  CROSS_COMPILE: aarch64-linux-gnu-
-
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      KERNEL_ARCH: arm64
+      CROSS_COMPILE: aarch64-linux-gnu-
+      REPO: ${{ github.repository }}
+      BRANCH: ${{ github.ref_name }}
+      RUN_ID: ${{ github.run_number }}
     strategy:
       matrix:
         defconfig:
