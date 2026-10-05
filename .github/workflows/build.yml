@@ -40,6 +40,14 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
+      - name: Cache toolchain
+        uses: actions/cache@v4
+        with:
+          path: tc
+          key: tc-protonclang-gcc4.9-v2
+          restore-keys: |
+            tc-protonclang-gcc4.9-v2
+
       - name: Set up build environment
         run: |
           sudo apt-get update
