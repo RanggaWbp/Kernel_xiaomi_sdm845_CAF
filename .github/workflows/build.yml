@@ -11,11 +11,9 @@ env:
   REPO: ${{ github.repository }}
   BRANCH: ${{ github.ref_name }}
   RUN_ID: ${{ github.run_number }}
-  ARCH: arm64
+  KERNEL_ARCH: arm64
   CROSS_COMPILE: aarch64-linux-gnu-
-  CROSS_COMPILE_ARM32: arm-linux-gnueabi-
-  CC: aarch64-linux-gnu-gcc
-  CLANG_TRIPLE: aarch64-linux-gnu-
+  CC: gcc
 
 jobs:
   build:
@@ -40,8 +38,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y git bc bison flex libssl-dev make libncurses-dev qemu-utils gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
-          echo "ARCH=${ARCH}" >> $GITHUB_ENV
-          echo "CROSS_COMPILE=${CROSS_COMPILE}" >> $GITHUB_ENV
+          # Export variables for subsequent steps
+          echo "KERNEL_ARCH=arm64" >> $GITHUB_ENV
+          echo "CROSS_COMPILE=aarch64-linux-gnu-" >> $GITHUB_ENV
+          echo "CC=gcc" >> $GITHUB_ENV
 
       - name: Pull submodules
         run: git submodule update --init --recursive
@@ -67,11 +67,11 @@ jobs:
 
       - name: Configure kernel
         run: |
-          make ${DEFCONFIG}
+          make ARCH=${KERNEL_ARCH} CROSS_COMPILE=${CROSS_COMPILE} ${DEFCONFIG}
 
       - name: Compile kernel
         run: |
-          make -j$(nproc) Image.gz-dtb
+          make ARCH=${KERNEL_ARCH} CROSS_COMPILE=${CROSS_COMPILE} -j$(nproc) Image.gz-dtb
           source build.env
           echo "## Build Info" >> $GITHUB_STEP_SUMMARY
           echo "- Kernel: `${KERNEL_VERSION}`" >> $GITHUB_STEP_SUMMARY
