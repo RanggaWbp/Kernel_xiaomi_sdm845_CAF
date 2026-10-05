@@ -42,7 +42,7 @@ Upstream: vc-teahouse/Baseband-guard @ a54e0dc6
  #include <linux/version.h>
  #include "objsec.h"
 +/*
-+ * Backport for Linux 4.9 (LawRun CAF sdm845, 4.9.337).
++ * Backport for Linux 4.9 (CAF sdm845, 4.9.337).
 + *
 + * <linux/blk.h> only exists from v5.11 (split out of <linux/blkdev.h> by
 + * commit 2f0c5a3a0d0d "block: split out blkdev.h include"). In 4.9

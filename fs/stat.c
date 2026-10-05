@@ -70,7 +70,7 @@ int vfs_getattr_nosec(struct path *path, struct kstat *stat)
 	struct inode *inode = d_backing_inode(path->dentry);
 #ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
 	/*
-	 * Backport note for 4.9 (LawRun CAF sdm845).
+	 	 * Backport note for 4.9 (CAF sdm845).
 	 *
 	 * Upstream SUSFS drives this from `stat->result_mask`, but 4.9's
 	 * `struct kstat` (include/linux/stat.h) has no result_mask field at

@@ -1,3 +1,4 @@
-[submodule "/home/ranggawbp/Kernel_xiaomi_sdm845_CAF/BakaSU"]
-	path = /home/ranggawbp/Kernel_xiaomi_sdm845_CAF/BakaSU
+[submodule "BakaSU"]
+	path = BakaSU
 	url = https://github.com/Baka-SU/BakaSU.git
+	active = true

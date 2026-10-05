@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [ master ]
 
+env:
+  REPO: ${{ github.repository }}
+  BRANCH: ${{ github.ref_name }}
+  RUN_ID: ${{ github.run_number }}
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -23,15 +28,35 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          submodules: recursive
 
       - name: Set up build environment
         run: |
-          sudo add-apt-repository ppa:phablet-team/ppa -y
-          sudo apt-get update
-          sudo apt-get install -y git bc bison flex libssl-dev make libncurses5 libncurses5-dev qemu-utils
+          sudo -S -p '' add-apt-repository ppa:phablet-team/ppa -y
+          sudo -S -p '' apt-get update
+          sudo -S -p '' apt-get install -y git bc bison flex libssl-dev make libncurses5 libncurses5-dev qemu-utils
 
       - name: Pull submodules
         run: git submodule update --init --recursive
+
+      - name: Generate build metadata
+        run: |
+          KERNEL_VERSION=$(make kernelversion 2>/dev/null || echo unknown)
+          KERNEL_RELEASE=$(make kernelrelease 2>/dev/null || echo unknown)
+          if [ -d "BakaSU" ]; then
+            KASU_VERSION=$(cd BakaSU && git describe --tags 2>/dev/null || git rev-parse --short HEAD)
+          else
+            KASU_VERSION=none
+          fi
+          if [ -f "include/linux/susfs.h" ]; then
+            SUSFS_VERSION=$(grep -oP '(?<=SUSFS_VERSION\s")[^"]+' include/linux/susfs.h)
+          else
+            SUSFS_VERSION=unknown
+          fi
+          BUILD_TIMESTAMP=$(date -u +%Y%m%d_%H%M%S)
+          printf 'KERNEL_VERSION=%s\nKERNEL_RELEASE=%s\nKASU_VERSION=%s\nSUSFS_VERSION=%s\nBUILD_TIMESTAMP=%s\n' \
+            "$KERNEL_VERSION" "$KERNEL_RELEASE" "$KASU_VERSION" "$SUSFS_VERSION" "$BUILD_TIMESTAMP" \
+            > build.env
 
       - name: Configure kernel
         run: |
@@ -40,22 +65,26 @@ jobs:
       - name: Compile kernel
         run: |
           make -j$(nproc) Image.gz-dtb
+          source build.env
+          echo "## Build Info" >> $GITHUB_STEP_SUMMARY
+          echo "- Kernel: \`${KERNEL_VERSION}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Release: \`${KERNEL_RELEASE}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- BakaSU: \`${KASU_VERSION}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- SUSFS: \`${SUSFS_VERSION}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Branch: \`${BRANCH}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Run: [\#${RUN_ID}](https://github.com/${REPO}/actions/runs/${RUN_ID})" >> $GITHUB_STEP_SUMMARY
 
       - name: Package with AnyKernel3
         run: |
           mkdir -p ak3
           cp anykernel/anykernel.sh ak3/
-          # Replace ReSukiSU references with BakaSU
-          sed -i 's/ReSukiSU/BakaSU/g' ak3/anykernel.sh
-          # Replace kernel.string
-          sed -i 's/kernel\.string=LawRun/kernel.string=BakaSU for Xiaomi SDM845 by RanggaWbp/g' ak3/anykernel.sh
-          # Remove Lawrun embellishments from UI print statements
-          sed -i '/LawRun/d' ak3/anykernel.sh
-          # Build the zip
+          source build.env
+          sed -i "s|^kernel\.string=.*|kernel.string=BakaSU for Xiaomi SDM845 by RanggaWbp|" ak3/anykernel.sh
+          sed -i "s|BakaSU v[0-9.]\+ + SUSFS v[0-9.]\+|BakaSU ${KASU_VERSION} + SUSFS ${SUSFS_VERSION}|g" ak3/anykernel.sh
           cd ak3 && bash ak3-core.sh
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: kernel-zip
+          name: kernel-zip-${RUN_ID}
           path: ak3/*.zip

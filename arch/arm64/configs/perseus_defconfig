@@ -661,7 +661,7 @@ CONFIG_WCD_DSP_GLINK=y
 CONFIG_WCD_SPI_AC=y
 CONFIG_MACH_XIAOMI_E5=y
 
-# --- ReSukiSU v4.2.0 (ReSukiSU/ReSukiSU) -------------------------------------
+# --- BakaSU v4.2.0 (Baka-SU/BakaSU) ------------------------------------------
 # THREAD_INFO_IN_TASK is a hard Kconfig dependency of KSU_SUSFS
 # (KernelSU/kernel/Kconfig: "depends on THREAD_INFO_IN_TASK && 64BIT").
 CONFIG_THREAD_INFO_IN_TASK=y

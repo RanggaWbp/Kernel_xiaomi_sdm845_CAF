@@ -25,7 +25,7 @@ enum binder_type {
 };
 
 /*
- * Backport for Linux 4.9 (LawRun CAF sdm845, 4.9.337).
+ * Backport for Linux 4.9 (CAF sdm845, 4.9.337).
  *
  * upstream (5.x+) provides cgroup_task_frozen() alongside cgroup_freezing().
  * That helper landed in commit 6b95a0d1baac ("cgroup: add

@@ -2,7 +2,7 @@
 ## osm0sis @ xda-developers
 ## Kernel xiaomi sdm845 (CAF 4.9.337) by RanggaWbp
 ##
-## Features: BakaSU v2025.01.01 + SUSFS v2.3.0 + NoMount + BBG + Kernel
+## Features: BakaSU + SUSFS + NoMount + BBG + Kernel
 ### AnyKernel properties
 # NOTE: only the key=value lines above this point are read as properties, and
 # they are read lowercase by update-binary's file_getprop. The shell variables
@@ -69,7 +69,7 @@ ui_print "  by RanggaWbp"
 # this always shows what ro.product.device actually reports, which is what you
 # want when a new device has to be added to device.name1-6 above.
 ui_print "  Device: $(getprop ro.product.device 2>/dev/null)"
-ui_print "  BakaSU v2025.01.01 + SUSFS v2.3.0 + NoMount + BBG + Kernel"
+ui_print "  BakaSU + SUSFS + NoMount + BBG + Kernel"
 ## end properties
 
 dump_boot
