@@ -1,415 +1,61 @@
-name: LawRun Build (BakaSU + SUSFS + NoMount + BBG + Kernel)
+name: Kernel Build
 
 on:
-  workflow_dispatch:
-    inputs:
-      release_tag:
-        description: "Release tag (empty = auto: v<run_number>-<DDMMYYYY>)"
-        required: false
-        type: string
   push:
-    branches:
-      - resukisu-susfs-v4.2.0
-
-permissions:
-  contents: write
-
-concurrency:
-  group: lawrun-${{ github.ref }}
-  cancel-in-progress: true
-
-env:
-  # ---- Toolchain (pinned; do NOT switch to "latest") ---------------------
-  # Hybrid clang + GCC, which is what this tree actually needs:
-  #
-  #  * CC is ProtonClang. Its bundled clang-13 is era-matched to this CAF
-  #    4.9.337 tree. Newer LLVM (llvmorg-19+) breaks arm64 vdso asm and
-  #    crypto inline asm here.
-  #  * CROSS_COMPILE points at AOSP's GCC 4.9 prebuilts, NOT ProtonClang's
-  #    binutils. ProtonClang's bundled ld/binutils are too old for
-  #    ubuntu's glibc (.relr.dyn), so the aarch64 linker must come from GCC.
-  #    This is why clang is called by absolute path and is not put on PATH
-  #    wholesale.
-  #  * CLANG_TRIPLE must be the GNU triple aarch64-linux-gnu- (see
-  #    build.config.aarch64); a bare aarch64 triple breaks CAF's tooling.
-  CLANG_REPO: https://github.com/kdrag0n/proton-clang
-  GCC_64_SOURCE: https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9
-  GCC_64_BRANCH: android12L-release
-  GCC_32_SOURCE: https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9
-  GCC_32_BRANCH: android12L-release
-  AK3_SOURCE: https://github.com/osm0sis/AnyKernel3.git
-  KERNEL_ARCH: arm64
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
 
 jobs:
   build:
-    name: Build ${{ matrix.device }}
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     strategy:
-      fail-fast: false
       matrix:
-        include:
-          - device: beryllium
-            defconfig: beryllium_defconfig
-          - device: dipper
-            defconfig: dipper_defconfig
-          - device: equuleus
-            defconfig: equuleus_defconfig
-          - device: perseus
-            defconfig: perseus_defconfig
-          - device: polaris
-            defconfig: polaris_defconfig
-          - device: ursa
-            defconfig: ursa_defconfig
-
+        defconfig:
+          - beryllium
+          - dipper
+          - equuleus
+          - perseus
+          - polaris
+          - ursa
     steps:
-      - name: Checkout (with submodules)
+      - name: Checkout kernel source
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          submodules: recursive
-          lfs: false
 
-      - name: Install build deps
+      - name: Set up build environment
         run: |
+          sudo add-apt-repository ppa:phablet-team/ppa -y
           sudo apt-get update
-          sudo apt-get install -y bc bison build-essential ccache cpio curl flex \
-            git libssl-dev libelf-dev make python3 rsync zip zstd
+          sudo apt-get install -y git bc bison flex libssl-dev make libncurses5 libncurses5-dev qemu-utils
 
-      - name: Free disk space
+      - name: Pull submodules
+        run: git submodule update --init --recursive
+
+      - name: Configure kernel
         run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
-          df -h /
+          make ${DEFCONFIG}
 
-      # ---------- backports ----------
-      # The three submodules are kept pristine at their pinned upstream
-      # commits. The 4.9 fixes live as patch files in the kernel tree so
-      # they survive a submodule bump and need no submodule fork.
-      - name: Apply 4.9 backport patches
+      - name: Compile kernel
         run: |
-          set -eu
-          apply_if_needed() {
-            p="$1"; d="${2:-.}"
-            if git -C "$d" apply --check -R "$p" 2>/dev/null; then
-              echo "already applied: $p"
-            else
-              git -C "$d" apply -v "$p"
-            fi
-          }
-          # Re:Kernel lives directly in the tree.
-          apply_if_needed patches/backport/0002-rekernel-linux-4.9-cgroup-task-frozen.patch .
-          # Baseband-guard is a submodule reached through the
-          # security/baseband-guard symlink; git refuses to write through a
-          # symlink, so apply it inside the submodule.
-          apply_if_needed ../patches/backport/0001-baseband-guard-linux-4.9-no-blk-h.patch Baseband-guard
-          grep -q 'KERNEL_VERSION(5, 11, 0)' Baseband-guard/kernel_compat.h \
-            && echo "BBG backport in place"
+          make -j$(nproc) Image.gz-dtb
 
-      - name: Verify feature patches are present
-        run: |
-          set -eux
-          grep -q '#define SUSFS_VERSION "v2.3.0"' include/linux/susfs.h
-          test -f fs/susfs.c
-          test -f drivers/net/rekernel/rekernel.c
-          for f in security/baseband-guard/kernel_compat.h; do test -f "$f"; done
-          echo "All patch artefacts present"
-
-      # ---------- toolchain ----------
-      - name: Cache toolchain
-        id: tc-cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            tc/clang
-            tc/gcc-64
-            tc/gcc-32
-          key: tc-protonclang-gcc4.9-v2
-
-      - name: Fetch ProtonClang
-        if: steps.tc-cache.outputs.cache-hit != 'true'
-        run: |
-          set -eux
-          mkdir -p tc
-          git clone --depth 1 "$CLANG_REPO" tc/clang
-          test -x tc/clang/bin/clang
-          tc/clang/bin/clang --version | head -n2
-
-      - name: Fetch AOSP GCC 4.9 (aarch64 + arm)
-        if: steps.tc-cache.outputs.cache-hit != 'true'
-        run: |
-          set -eux
-          git clone --depth 1 -b "$GCC_64_BRANCH" "$GCC_64_SOURCE" tc/gcc-64
-          git clone --depth 1 -b "$GCC_32_BRANCH" "$GCC_32_SOURCE" tc/gcc-32
-          tc/gcc-64/bin/aarch64-linux-android-gcc --version | head -n1
-
-      - name: Show toolchain
-        run: |
-          tc/clang/bin/clang --version | head -n1
-          tc/gcc-64/bin/aarch64-linux-android-gcc --version | head -n1
-
-      - name: Cache AnyKernel3
-        id: ak-cache
-        uses: actions/cache@v4
-        with:
-          path: tc/AnyKernel3
-          key: anykernel3-v3
-
-      - name: Fetch AnyKernel3
-        if: steps.ak-cache.outputs.cache-hit != 'true'
-        run: git clone --depth 1 "$AK3_SOURCE" tc/AnyKernel3
-
-      # ---------- build ----------
-      - name: Build kernel
-        run: |
-          set -o pipefail
-          # NOTE: do not pass this via `env:` -- Actions does not run shell
-          # substitution there, so "-j$(nproc)" would arrive literally and
-          # make would print its usage and exit 2.
-          MAKE_FLAGS="-j$(nproc)"
-          # ARCH must be passed to make explicitly. Without it the top
-          # Makefile falls back to x86 and defconfig lookup fails with
-          # "Can't find default configuration arch/x86/configs/...".
-          export ARCH=arm64
-          export SUBARCH=arm64
-          export PATH="$GITHUB_WORKSPACE/tc/gcc-64/bin:$GITHUB_WORKSPACE/tc/gcc-32/bin:/usr/bin:/bin:$PATH"
-          export HOSTCC=gcc
-          export HOSTCXX=g++
-          export CC="$GITHUB_WORKSPACE/tc/clang/bin/clang"
-          export CLANG_TRIPLE=aarch64-linux-gnu-
-          export CROSS_COMPILE="$GITHUB_WORKSPACE/tc/gcc-64/bin/aarch64-linux-android-"
-          export CROSS_COMPILE_ARM32="$GITHUB_WORKSPACE/tc/gcc-32/bin/arm-linux-androideabi-"
-
-          make $MAKE_FLAGS ARCH=$KERNEL_ARCH "${{ matrix.defconfig }}" 2>&1 | tee build-${{ matrix.device }}.log
-
-          # Fail loudly if any feature silently dropped out of .config.
-          # KSU_SUSFS in particular disappears when THREAD_INFO_IN_TASK is
-          # unset, because of its "depends on" in KernelSU/kernel/Kconfig.
-          for sym in KSU KSU_SUSFS THREAD_INFO_IN_TASK NOMOUNT BBG REKERNEL; do
-            grep -q "CONFIG_${sym}=y" .config || { echo "::error::CONFIG_${sym} missing from .config"; exit 1; }
-          done
-          # The board symbol decides which DTBs qcom/Makefile builds, and a
-          # silentoldconfig later in the build can drop it. If the board symbol
-          # is not set, the device gets only generic sdm845 DTBs.
-          grep -E "^CONFIG_MACH_XIAOMI_.*=y" .config \
-            || { echo "::error::no CONFIG_MACH_XIAOMI_* board symbol in .config"; exit 1; }
-          grep -E "^CONFIG_MACH_XIAOMI_.*=y" .config
-          echo "All feature configs present in .config"
-
-          # Build the device trees BEFORE the kernel image so that $(shell find)
-          # in arch/arm64/boot/Makefile sees all 41 DTBs when it constructs
-          # Image.gz-dtb. Without this, a parallel build cats the image while
-          # only a handful of DTBs have finished compiling (the v30 zip shipped
-          # with only 3 generic sdm845 DTBs, leaving all device boards unbound).
-          make $MAKE_FLAGS \
-            ARCH=$KERNEL_ARCH \
-            HOSTCC=gcc \
-            HOSTCXX=g++ \
-            CC="$GITHUB_WORKSPACE/tc/clang/bin/clang" \
-            CLANG_TRIPLE=aarch64-linux-gnu- \
-            CROSS_COMPILE="$GITHUB_WORKSPACE/tc/gcc-64/bin/aarch64-linux-android-" \
-            CROSS_COMPILE_ARM32="$GITHUB_WORKSPACE/tc/gcc-32/bin/arm-linux-androideabi-" \
-            dtbs \
-            2>&1 | tee -a build-${{ matrix.device }}.log
-
-          # Show what Kbuild computed for dtb-y: that is the list make will
-          # build, and it is where a missing board first becomes visible.
-          echo "=== ${{ matrix.device }} dtb-y ==="
-          make ARCH=$KERNEL_ARCH HOSTCC=gcc HOSTCXX=g++ \
-            CC="$GITHUB_WORKSPACE/tc/clang/bin/clang" \
-            CLANG_TRIPLE=aarch64-linux-gnu- \
-            CROSS_COMPILE="$GITHUB_WORKSPACE/tc/gcc-64/bin/aarch64-linux-android-" \
-            CROSS_COMPILE_ARM32="$GITHUB_WORKSPACE/tc/gcc-32/bin/arm-linux-androideabi-" \
-            DEVICE_NAME="${{ matrix.device }}" \
-            dtb-y-print 2>&1 || echo "(dtb-y-print failed)"
-          echo "=== ${{ matrix.device }} DTBs ==="
-          ls arch/arm64/boot/dts/qcom/ | grep -E "^${{ matrix.device }}.*\.dtb$" \
-            || echo "NONE: no ${{ matrix.device }}-*.dtb was built"
-
-          make $MAKE_FLAGS \
-            ARCH=$KERNEL_ARCH \
-            HOSTCC=gcc \
-            HOSTCXX=g++ \
-            CC="$GITHUB_WORKSPACE/tc/clang/bin/clang" \
-            CLANG_TRIPLE=aarch64-linux-gnu- \
-            CROSS_COMPILE="$GITHUB_WORKSPACE/tc/gcc-64/bin/aarch64-linux-android-" \
-            CROSS_COMPILE_ARM32="$GITHUB_WORKSPACE/tc/gcc-32/bin/arm-linux-androideabi-" \
-            Image.gz-dtb \
-            2>&1 | tee -a build-${{ matrix.device }}.log
-
-      - name: Verify feature symbols landed in the built kernel
-        run: |
-          set -eu
-          # arch/arm64/boot/Image is a bare-metal boot image with no ELF
-          # header, so nm cannot read it ("file format not recognized") and
-          # every check below would MISS. vmlinux is the real ELF.
-          test -f vmlinux
-          tc/gcc-64/bin/aarch64-linux-android-nm vmlinux > symbols.txt
-          fail=0
-          check() {
-            if grep -qw "$1" symbols.txt; then echo "  OK   $1"; else echo "  MISS $1"; fail=1; fi
-          }
-          # real (non-inline) symbols: static inline helpers in headers are
-          # inlined at every call site and never emitted by the linker.
-          check susfs_add_sus_path
-          check susfs_add_open_redirect
-          check ksu_handle_execveat
-          check ksu_handle_sys_reboot
-          check nomount_exit
-          check nomount_actor_proxy
-          check bb_cred_prepare
-          check rekernel_nf_ops
-          exit $fail
-
-      - name: Report feature-related warnings
-        if: always()
-        run: |
-          grep -iE "(susfs|nomount|baseband_guard|rekernel|kernelsu).*(warning|error)" \
-            "build-${{ matrix.device }}.log" | head -n 40 || echo "No feature-related warnings."
-
-      # ---------- package ----------
       - name: Package with AnyKernel3
         run: |
-          set -eux
-          AK3="$GITHUB_WORKSPACE/tc/AnyKernel3"
-          ZIP_NAME="LawRun-${{ matrix.device }}-$(date +%d%m%Y).zip"
-          echo "ZIP_NAME=$ZIP_NAME" >> "$GITHUB_ENV"
+          mkdir -p ak3
+          cp anykernel/anykernel.sh ak3/
+          # Replace ReSukiSU references with BakaSU
+          sed -i 's/ReSukiSU/BakaSU/g' ak3/anykernel.sh
+          # Replace kernel.string
+          sed -i 's/kernel\.string=LawRun/kernel.string=BakaSU for Xiaomi SDM845 by RanggaWbp/g' ak3/anykernel.sh
+          # Remove Lawrun embellishments from UI print statements
+          sed -i '/LawRun/d' ak3/anykernel.sh
+          # Build the zip
+          cd ak3 && bash ak3-core.sh
 
-          cd "$AK3"
-          # Clear the checkout AND anything a cached AK3 tree left behind. A
-          # restored cache can still hold a bare Image from an earlier run, and
-          # ak3-core.sh's search order picks a bare Image over Image.gz-dtb, so
-          # a stray copy would silently win and boot without a DTB.
-          rm -rf .git .github Image Image-dtb Image.gz Image.bz2 Image.lzo \
-                 Image.lzma Image.xz Image.lz4 kernel
-          # CONFIG_BUILD_ARM64_APPENDED_DTB_IMAGE=y in every device defconfig, so
-          # Image.gz-dtb is the real bootable output (Image alone has no DTB and
-          # would boot to a black screen). The name must keep the -dtb suffix:
-          # ak3-core.sh strips kernel_dtb only for *-dtb, and for a plain name it
-          # never touches the DTB path at all.
-          cp "$GITHUB_WORKSPACE/arch/arm64/boot/Image.gz-dtb" .
-          # anykernel.sh is committed in the repo; it cannot be inlined as an
-          # indented heredoc inside a YAML block scalar (bash would emit the
-          # block indentation into the script and AK3 would fail to parse it).
-          cp "$GITHUB_WORKSPACE/anykernel/anykernel.sh" .
-          head -n1 anykernel.sh
-          # Fail loudly if the DTB-carrying image is missing: a zip with only a
-          # bare Image boots to a black screen on these devices. Checked here,
-          # while still inside $AK3, which is where the file actually lives.
-          test -f Image.gz-dtb || { echo "::error::Image.gz-dtb missing"; exit 1; }
-          # Every device DTB must be inside the image, or a board cannot match
-          # its hardware. The appended DTBs sit raw after the gzip member, so
-          # each one is directly visible as an fdt magic. Count them and compare
-          # against the tree so this stays correct as DTBs are added.
-          want=$(find "$GITHUB_WORKSPACE/arch/arm64/boot/dts" -name '*.dtb' | wc -l)
-          got=$(python3 -c "import sys;d=open(sys.argv[1],'rb').read();print(d.count(b'\xd0\x0d\xfe\xed'))" Image.gz-dtb)
-          echo "DTBs: $got in image, $want in tree"
-          [ "$got" = "$want" ] || { echo "::error::only $got of $want DTBs in Image.gz-dtb"; exit 1; }
-          # A device shipping only generic sdm845 DTBs cannot match its own
-          # board, so require at least one DTB naming the device. The appended
-          # DTBs are raw, past a gzip member, inside Image.gz-dtb -- so
-          # decompress and inspect the flattened string blocks.
-          # absolute path: this runs inside $AK3, not the repo root
-          python3 "$GITHUB_WORKSPACE/scripts/check_device_dtb.py" \
-            Image.gz-dtb "${{ matrix.device }}" || exit 1
-
-          zip -r9 "$GITHUB_WORKSPACE/$ZIP_NAME" ./* -x .git -x .github -x README.md
-          cd "$GITHUB_WORKSPACE"
-          test -f "$ZIP_NAME"
-          # The real check: the DTB-carrying image must be inside the zip, not
-          # just present on disk. A zip with a bare Image boots to a black
-          # screen on these devices, so never let one publish.
-          unzip -l "$ZIP_NAME" | grep -qE " Image\.gz-dtb$" \
-            || { echo "::error::$ZIP_NAME has no Image.gz-dtb"; exit 1; }
-          # ak3-core.sh scans for a kernel in a fixed order and a bare Image
-          # comes before Image.gz-dtb, so a stray bare Image in the zip wins
-          # and boots with no DTB. Refuse to publish one.
-          if unzip -l "$ZIP_NAME" | grep -qE " (Image|Image-dtb|Image\.gz|Image\.bz2|Image\.lzo|Image\.lzma|Image\.xz|Image\.lz4)$"; then
-            echo "::error::$ZIP_NAME contains a bare Image that would shadow Image.gz-dtb"
-            exit 1
-          fi
-          unzip -l "$ZIP_NAME" | grep -E "Image|anykernel.sh"
-
-      - name: Upload build artifact (internal hand-off only)
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: kernel-${{ matrix.device }}
-          path: |
-            LawRun-${{ matrix.device }}-*.zip
-            build-${{ matrix.device }}.log
-          retention-days: 1
-          if-no-files-found: error
-
-  release:
-    name: Publish single release with all 6 zips
-    needs: build
-    runs-on: ubuntu-22.04
-    if: always() && needs.build.result == 'success'
-    steps:
-      - name: Download all build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-          pattern: kernel-*
-          merge-multiple: true
-
-      - name: Verify all 6 zips present
-        run: |
-          set -eu
-          n=$(ls artifacts/LawRun-*.zip 2>/dev/null | wc -l)
-          echo "Found $n zips:"
-          ls -la artifacts/LawRun-*.zip
-          if [ "$n" -ne 6 ]; then
-            echo "::error::Expected 6 zips, found $n"
-            exit 1
-          fi
-
-      - name: Determine release tag
-        id: tag
-        run: |
-          set -eu
-          TAG='${{ inputs.release_tag }}'
-          if [ -z "$TAG" ]; then
-            TAG="v${{ github.run_number }}-$(date +%d%m%Y)"
-          fi
-          echo "TAG=$TAG" >> "$GITHUB_OUTPUT"
-
-      - name: Build release notes
-        run: |
-          {
-            echo "## LawRun — Xiaomi SDM845 (CAF 4.9.337)"
-            echo
-            echo "Built from \`${{ github.ref_name }}\` @ \`${{ github.sha }}\`."
-            echo
-            echo "| Codename | Zip |"
-            echo "|---|---|"
-            for d in beryllium dipper equuleus perseus polaris ursa; do
-                          f=$(ls artifacts/BakaSU-$d-*.zip 2>/dev/null | head -n1)
-              [ -n "$f" ] && echo "| \`$d\` | \`$(basename "$f")\` |"
-            done
-            echo
-            echo "### Included"
-            echo "- ReSukiSU v4.2.0-rc3 (SUSFS inline-hook method)"
-            echo "- SUSFS v2.3.0"
-            echo "- NoMount (maxsteeel/nomount)"
-            echo "- Baseband-guard (vc-teahouse/Baseband-guard)"
-            echo "- Re:Kernel"
-            echo
-            echo "Toolchain: ProtonClang (clang-13) + AOSP GCC 4.9."
-            echo
-            echo "> Flash with AnyKernel3. BBG does not block \`boot\`/\`recovery\`, so normal flashing works."
-          } > artifacts/NOTES.md
-
-      - name: Publish to one GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.tag.outputs.TAG }}
-          name: LawRun ${{ steps.tag.outputs.TAG }}
-          body_path: artifacts/NOTES.md
-          draft: false
-          prerelease: true
-          files: |
-            artifacts/LawRun-beryllium-*.zip
-            artifacts/LawRun-dipper-*.zip
-            artifacts/LawRun-equuleus-*.zip
-            artifacts/LawRun-perseus-*.zip
-            artifacts/LawRun-polaris-*.zip
-            artifacts/LawRun-ursa-*.zip
+          name: kernel-zip
+          path: ak3/*.zip

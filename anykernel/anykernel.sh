@@ -1,9 +1,8 @@
 ### AnyKernel3 Ramdisk Script
 ## osm0sis @ xda-developers
-## LawRun xiaomi sdm845 (CAF 4.9.337) by RanggaWbp
+## Kernel xiaomi sdm845 (CAF 4.9.337) by RanggaWbp
 ##
 ## Features: BakaSU v2025.01.01 + SUSFS v2.3.0 + NoMount + BBG + Kernel
-
 ### AnyKernel properties
 # NOTE: only the key=value lines above this point are read as properties, and
 # they are read lowercase by update-binary's file_getprop. The shell variables
@@ -12,7 +11,7 @@
 # is silently ignored: $BLOCK stays empty, setup_ak's "case $BLOCK" falls into
 # the *) branch with an empty parttype, the by-name loops match nothing, and
 # it dies with "Unable to determine  partition. Aborting..." (empty $BLOCK).
-#
+# 
 # 1 (not 0) so update-binary's do_devicecheck() actually runs: it compares
 # device.name1-6 against ro.product.device / ro.build.product /
 # ro.product.vendor.device / ro.vendor.product.device and prints the matched
@@ -63,7 +62,7 @@ PATCH_VBMETA_FLAG=auto;
 . tools/ak3-core.sh
 
 ## begin properties
-ui_print "  LawRun for Xiaomi SDM845 (CAF 4.9.337)"
+ui_print "  Kernel for Xiaomi SDM845 (CAF 4.9.337)"
 ui_print "  by RanggaWbp"
 # Print the codename here as well. do_devicecheck() above already reports a
 # match, but it only prints on success and prints nothing on the no-check path;

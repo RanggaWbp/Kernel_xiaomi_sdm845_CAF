@@ -358,6 +358,7 @@ SYSCALL_DEFINE4(fallocate, int, fd, int, mode, loff_t, offset, loff_t, len)
 	return error;
 }
 
+			        int *flags);
 
 /*
  * access() needs to use the real uid/gid, not the effective uid/gid.
@@ -381,10 +382,6 @@ SYSCALL_DEFINE3(faccessat, int, dfd, const char __user *, filename, int, mode)
 	struct vfsmount *mnt;
 	int res;
 	unsigned int lookup_flags = LOOKUP_FOLLOW;
-
-#ifdef CONFIG_KSU_SUSFS
-	struct filename *fname = NULL;
-#endif
 
 	if (mode & ~S_IRWXO)	/* where's F_OK, X_OK, W_OK, R_OK? */
 		return -EINVAL;
@@ -1164,7 +1161,6 @@ SYSCALL_DEFINE2(creat, const char __user *, pathname, umode_t, mode)
 	return sys_open(pathname, O_CREAT | O_WRONLY | O_TRUNC, mode);
 }
 
-#endif
 
 /*
  * "id" is the POSIX thread ID. We use the
