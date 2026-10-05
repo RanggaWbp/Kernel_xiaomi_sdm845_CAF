@@ -204,7 +204,13 @@ jobs:
           # Actions reject the whole GITHUB_ENV file with "Invalid format '*'".
           export ARCH=arm64
           KERNEL_VERSION=$(make -s kernelversion 2>/dev/null | tail -n1)
-          KERNEL_RELEASE=$(make -s kernelrelease 2>/dev/null | tail -n1)
+          # After a successful compile the release string is already written to
+          # include/config/kernel.release by the kernel itself. Reading it is
+          # cheaper and cannot fall back to x86 silentoldconfig.
+          KERNEL_RELEASE=$(sed -n '1p' include/config/kernel.release 2>/dev/null || true)
+          if [ -z "$KERNEL_RELEASE" ]; then
+            KERNEL_RELEASE=$(make -s ARCH=arm64 kernelrelease | tail -n1)
+          fi
           if [ -d "BakaSU" ]; then
             KASU_VERSION=$(cd BakaSU && git describe --tags --always 2>/dev/null || echo unknown)
           else
