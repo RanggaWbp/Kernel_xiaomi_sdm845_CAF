@@ -15,6 +15,15 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      ARCH: arm64
+      SUBARCH: arm64
+      HOSTCC: gcc
+      HOSTCXX: g++
+      CC: ${{ github.workspace }}/tc/clang/bin/clang
+      CLANG_TRIPLE: aarch64-linux-gnu-
+      CROSS_COMPILE: ${{ github.workspace }}/tc/gcc-64/bin/aarch64-linux-android-
+      CROSS_COMPILE_ARM32: ${{ github.workspace }}/tc/gcc-32/bin/arm-linux-androideabi-
     strategy:
       matrix:
         defconfig:
