@@ -1,4 +1,4 @@
-name: BakaSU Kernel Build
+name: BakaSU
 
 on:
   workflow_dispatch:
