@@ -26,6 +26,12 @@ env:
   GCC_32_BRANCH: android12L-release
   AK3_SOURCE: https://github.com/osm0sis/AnyKernel3.git
   KERNEL_ARCH: arm64
+  # clang is the actual compiler; the AOSP GCC 4.9 prebuilt only supplies
+  # binutils (ld/ar/nm). Without CC set, kbuild looks for a gcc driver the
+  # prebuilt does not ship and dies with "aarch64-linux-android-gcc: No such
+  # file or directory". CLANG_TRIPLE must be the GNU triple, not a bare one.
+  CC: ${{ github.workspace }}/tc/proton-clang/bin/clang
+  CLANG_TRIPLE: aarch64-linux-gnu-
   REPO: ${{ github.repository }}
   BRANCH: ${{ github.ref_name }}
   RUN_ID: ${{ github.run_number }}
