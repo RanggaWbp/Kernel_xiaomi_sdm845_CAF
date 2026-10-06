@@ -104,6 +104,13 @@ jobs:
           if [ ! -d "tc/gcc-32" ]; then
             git clone --depth 1 --branch "$GCC_32_BRANCH" "$GCC_32_SOURCE" tc/gcc-32
           fi
+          # Both gcc bin dirs must be on PATH. arch/arm64/Makefile derives
+          # GCC_TOOLCHAIN{,_32}_DIR with `which $(CROSS_COMPILE_ARM32)ld`; if
+          # it is not found, CLANG_PREFIX32 stays empty and clang's
+          # -no-integrated-as falls back to ProtonClang's as, which rejects
+          # the GNU '-EL' flag. Put them on PATH for every later step.
+          echo "$PWD/tc/gcc-64/bin" >> "$GITHUB_PATH"
+          echo "$PWD/tc/gcc-32/bin" >> "$GITHUB_PATH"
 
       - name: Cache toolchains
         uses: actions/cache@v4
