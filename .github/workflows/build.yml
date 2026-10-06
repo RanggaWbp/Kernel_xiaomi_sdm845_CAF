@@ -109,8 +109,9 @@ jobs:
 
       - name: Prepare kernel source
         run: |
-          # Remove any stale .git in case submodule caused issues
-          rm -rf .git/modules
+          # Submodules are already initialized by actions/checkout
+          # (submodules: recursive). Do NOT rm -rf .git/modules here: it
+          # orphans every submodule gitfile and breaks this update step.
           git submodule update --init --recursive
           # Ensure we're on the right branch for patches
           git checkout "$BRANCH" || git checkout -b "$BRANCH"
