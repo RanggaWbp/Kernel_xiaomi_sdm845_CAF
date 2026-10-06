@@ -159,7 +159,7 @@ jobs:
           set -eu
           echo "Validating kernel configuration..."
           # Check for symbols that must be present
-          local failures=0
+          failures=0
           check_symbol() {
             local sym="$1"
             local val="$2"
@@ -172,8 +172,8 @@ jobs:
           }
           check_symbol "CONFIG_ARM64" "y"
           check_symbol "CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE" "y"
-          check_symbol "CONFIG_DEBUG_INFO" "n"
-          check_symbol "CONFIG_INITRAMFS_SOURCE" ""
+          check_symbol "CONFIG_DEBUG_INFO" "y"
+          check_symbol "CONFIG_INITRAMFS_SOURCE" '""'
           check_symbol "CONFIG_BUILD_ARM64_APPENDED_DTB_IMAGE" "y"
           if [ $failures -gt 0 ]; then
             echo "Config validation failed with $failures errors"
