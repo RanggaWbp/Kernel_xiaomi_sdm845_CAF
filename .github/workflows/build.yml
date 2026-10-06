@@ -151,7 +151,7 @@ jobs:
 
       - name: Configure kernel
         run: |
-          make ARCH=$KERNEL_ARCH CROSS_COMPILE="$PWD/tc/gcc-64/bin/aarch64-linux-android-" CROSS_COMPILE_ARM32="$PWD/tc/gcc-32/bin/arm-linux-androideabi-" O=out ${{ matrix.defconfig }}
+          make ARCH=$KERNEL_ARCH CC="$PWD/tc/proton-clang/bin/clang" CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE="$PWD/tc/gcc-64/bin/aarch64-linux-android-" CROSS_COMPILE_ARM32="$PWD/tc/gcc-32/bin/arm-linux-androideabi-" O=out ${{ matrix.defconfig }}
           # Enable extra configs for better Android compatibility
           sed -i 's/# CONFIG_LOCALVERSION_AUTO is not set/CONFIG_LOCALVERSION_AUTO=y/' out/.config
           sed -i 's/# CONFIG_LOCALVERSION is not set/CONFIG_LOCALVERSION="-bakasu-susfs"/' out/.config
@@ -189,12 +189,12 @@ jobs:
 
       - name: Build kernel Image.gz
         run: |
-          make -j$(nproc) ARCH=$KERNEL_ARCH CROSS_COMPILE="$PWD/tc/gcc-64/bin/aarch64-linux-android-" CROSS_COMPILE_ARM32="$PWD/tc/gcc-32/bin/arm-linux-androideabi-" O=out Image.gz
+          make -j$(nproc) ARCH=$KERNEL_ARCH CC="$PWD/tc/proton-clang/bin/clang" CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE="$PWD/tc/gcc-64/bin/aarch64-linux-android-" CROSS_COMPILE_ARM32="$PWD/tc/gcc-32/bin/arm-linux-androideabi-" O=out Image.gz
           cp out/arch/arm64/boot/Image.gz out/Image.gz/
 
       - name: Build DTBs
         run: |
-          make -j$(nproc) ARCH=$KERNEL_ARCH CROSS_COMPILE="$PWD/tc/gcc-64/bin/aarch64-linux-android-" CROSS_COMPILE_ARM32="$PWD/tc/gcc-32/bin/arm-linux-androideabi-" O=out dtbs
+          make -j$(nproc) ARCH=$KERNEL_ARCH CC="$PWD/tc/proton-clang/bin/clang" CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE="$PWD/tc/gcc-64/bin/aarch64-linux-android-" CROSS_COMPILE_ARM32="$PWD/tc/gcc-32/bin/arm-linux-androideabi-" O=out dtbs
           # Copy all relevant DTBs to output directory
           cp out/arch/arm64/boot/dts/qcom/${{ matrix.device }}*.dtb out/Image.gz-dtb/ 2>/dev/null || true
           # Also copy SDM845 base DTB
