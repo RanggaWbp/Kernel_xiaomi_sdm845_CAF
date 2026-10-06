@@ -33,7 +33,7 @@ device.name6=ursa
 # file_getprop from this file, so it must stay lowercase at column 0 and
 # cannot contain a '=' sign).
 kernel.string=BakaSU for Xiaomi SDM845 by RanggaWbp
-supported.versions="10-15"
+supported.versions=
 supported.patchlevels=
 supported.vendorpatchlevels=
 
