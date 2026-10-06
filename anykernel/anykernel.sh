@@ -33,8 +33,8 @@ device.name6=ursa
 # file_getprop from this file, so it must stay lowercase at column 0 and
 # cannot contain a '=' sign).
 kernel.string=BakaSU for Xiaomi SDM845 by RanggaWbp
-supported.versions=
-supported.patchlevels=
+supported.versions="10-15"
+supported.patchlevels="2020-01-"
 supported.vendorpatchlevels=
 
 # boot shell variables (UPPERCASE -- these are what ak3-core.sh consumes)
