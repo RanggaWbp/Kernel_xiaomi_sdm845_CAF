@@ -38,23 +38,29 @@ env:
 
 jobs:
   build:
-    name: Build ${{ matrix.device }}
+    name: ${{ matrix.model }} (${{ matrix.device }})
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
       matrix:
         include:
           - device: beryllium
+            model: POCOPHONE F1
             defconfig: beryllium_defconfig
           - device: dipper
+            model: Xiaomi Mi 8
             defconfig: dipper_defconfig
           - device: equuleus
+            model: Xiaomi Mi 8 Pro (UD)
             defconfig: equuleus_defconfig
           - device: perseus
+            model: Xiaomi MIX 3
             defconfig: perseus_defconfig
           - device: polaris
+            model: Xiaomi MIX 2S
             defconfig: polaris_defconfig
           - device: ursa
+            model: Xiaomi Mi 8 Explorer Edition
             defconfig: ursa_defconfig
 
     steps:
@@ -245,137 +251,106 @@ jobs:
           echo "ZIP created: artifacts/$ZIP_NAME"
           unzip -l "artifacts/$ZIP_NAME"
           ls -la artifacts/
-
-      - name: Generate changelog
+      - name: Collect build metadata
         run: |
-          # Generate git log for this build
-          git log --oneline -20 > artifacts/CHANGELOG.txt
-          echo "" >> artifacts/CHANGELOG.txt
-          echo "Build Date: $(date)" >> artifacts/CHANGELOG.txt
-          echo "Branch: $BRANCH" >> artifacts/CHANGELOG.txt
-          echo "Run ID: $RUN_ID" >> artifacts/CHANGELOG.txt
-          echo "Device: ${{ matrix.device }}" >> artifacts/CHANGELOG.txt
-          echo "Kernel Version: $(cat out/.config 2>/dev/null | grep CONFIG_LOCALVERSION | cut -d= -f2 | tr -d '"' || echo 'unknown')" >> artifacts/CHANGELOG.txt
-          
-          # Create release notes
-          cat > artifacts/README.md << 'EOF'
-          # BakaSU Kernel for Xiaomi SDM845 Devices
-          
-          ## Features:
-          - BakaSU (ReSukiSU) KernelSU integration
-          - SUSFS (Suspend File System) for enhanced performance
-          - NoMount support for custom ROMs
-          - Baseband-guard for radio stability
-          - ReKernel optimizations
-          - DroidSpaces support (ravindu644/droidspaces-oss)
-          
-          ## Installation:
-          1. Flash via TWRP/OrangeFox recovery
-          2. Wipe cache and dalvik-cache (recommended)
-          3. Reboot system
-          
-          ## Supported Devices:
-          - beryllium (Xiaomi Mi 8 Lite)
-          - dipper (Xiaomi Mi 8)
-          - equuleus (Xiaomi Mi 8 SE)
-          - perseus (Xiaomi Mi Mix 2S)
-          - polaris (Xiaomi Mi Mix 3)
-          - ursa (Xiaomi Mi 8 Explorer Edition)
-          
-          ## Notes:
-          - This kernel is based on CAF 4.9.337
-          - Built with ProtonClang and AOSP GCC 4.9
-          - Supports Android 10-15
-          EOF
-          
-          # Create NOTES.md for GitHub Release
-          cat > artifacts/NOTES.md << EOF
-          # BakaSU Kernel Release
-            
-          **Device:** ${{ matrix.device }}  
-          **Branch:** $BRANCH  
-          **Build Date:** $(date +%Y-%m-%d)  
-          **Run ID:** $RUN_ID
-            
-          ## Features:
-          - BakaSU (ReSukiSU) KernelSU integration
-          - SUSFS (Suspend File System) for enhanced performance
-          - NoMount support for custom ROMs
-          - Baseband-guard for radio stability
-          - ReKernel optimizations
-          - DroidSpaces support (ravindu644/droidspaces-oss)
-            
-          ## Installation:
-          1. Flash via TWRP/OrangeFox recovery
-          2. Wipe cache and dalvik-cache (recommended)
-          3. Reboot system
-            
-          ## Known Issues:
-          - Please test thoroughly before relying on this build
-          - Report any issues on GitHub issues
-          EOF
-          
-          echo "Changelog and README generated"
-          cat artifacts/CHANGELOG.txt
+          set -eu
+          KVER=$(sed -n 's/^CONFIG_LOCALVERSION=//p' out/.config | tr -d '"')
+          echo "KVER=$KVER" >> "$GITHUB_ENV"
+          git log --oneline -15 > artifacts/CHANGELOG.txt
+          {
+            echo ""
+            echo "Model: ${{ matrix.model }} (${{ matrix.device }})"
+            echo "Branch: $BRANCH"
+            echo "Run: $RUN_ID"
+            echo "Kernel: CAF 4.9.337 $KVER"
+            echo "Date: $(date -u '+%Y-%m-%d %H:%M UTC')"
+          } >> artifacts/CHANGELOG.txt
 
-      - name: Upload build artifacts
+      - name: Upload zip artifact
         uses: actions/upload-artifact@v4
         with:
-          name: bakasu-${{ matrix.device }}-artifacts
+          name: bakasu-${{ matrix.device }}
+          # Only the flashable zip and its short changelog. Uploading out/ here
+          # pushed ~2.6 GB of object files and vmlinux per device for no reason.
           path: |
-            artifacts/
-            out/
+            artifacts/*.zip
+            artifacts/CHANGELOG.txt
+          retention-days: 7
+          if-no-files-found: error
 
-      - name: Generate release tag
+  release:
+    name: Publish release (all 6 zips)
+    needs: build
+    if: ${{ needs.build.result == 'success' }}
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: bakasu-*
+          merge-multiple: true
+
+      - name: Verify all 6 zips present
+        run: |
+          set -eu
+          n=$(ls artifacts/BakaSU-*.zip 2>/dev/null | wc -l)
+          ls -la artifacts/BakaSU-*.zip
+          [ "$n" -eq 6 ] || { echo "::error::expected 6 zips, found $n"; exit 1; }
+
+      - name: Determine tag
         id: tag
         run: |
-          if [ -z "${{ github.event.inputs.release_tag }}" ]; then
-            TAG="v${RUN_ID}-$(date +%Y%m%d)"
-          else
-            TAG="${{ github.event.inputs.release_tag }}"
-          fi
-          echo "TAG=${TAG}" >> $GITHUB_ENV
-          echo "tag=${TAG}" >> $GITHUB_OUTPUT
-          echo "Generated tag: ${TAG}"
+          set -eu
+          TAG='${{ github.event.inputs.release_tag }}'
+          [ -n "$TAG" ] || TAG="v${{ github.run_number }}-$(date -u +%d%m%Y)"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
-      - name: Create Git tag
+      - name: Build release notes
         run: |
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-          git tag -f "$TAG" -m "Release $TAG for ${{ matrix.device }}"
-          git push origin "$TAG" --force || echo "Tag push skipped (may already exist)"
+          set -eu
+          {
+            echo "## BakaSU - Xiaomi SDM845 (CAF 4.9.337)"
+            echo
+            echo "Built from \`${{ github.ref_name }}\` @ \`${{ github.sha }}\` on $(date -u '+%Y-%m-%d %H:%M UTC')."
+            echo
+            echo "| Codename | Device | Zip |"
+            echo "|---|---|---|"
+            while IFS='|' read -r d m; do
+              f=$(ls artifacts/BakaSU-$d-*.zip 2>/dev/null | head -n1)
+              echo "| \`$d\` | $m | \`$(basename "$f")\` |"
+            done <<'DEV'
+          beryllium|POCOPHONE F1
+          dipper|Xiaomi Mi 8
+          equuleus|Xiaomi Mi 8 Pro (UD)
+          perseus|Xiaomi MIX 3
+          polaris|Xiaomi MIX 2S
+          ursa|Xiaomi Mi 8 Explorer Edition
+          DEV
+            echo
+            echo "### Features"
+            echo "- **BakaSU** (ReSukiSU) KernelSU integration"
+            echo "- **SUSFS** v2.3.0"
+            echo "- **NoMount** (maxsteeel/nomount)"
+            echo "- **Baseband-guard** (vc-teahouse/Baseband-guard)"
+            echo "- **ReKernel** optimizations"
+            echo "- **DroidSpaces** container support"
+            echo
+            echo "### Install"
+            echo "1. Flash the zip for your codename via TWRP / OrangeFox."
+            echo "2. Wipe cache + dalvik-cache (recommended)."
+            echo "3. Reboot."
+            echo
+            echo "> Toolchain: ProtonClang (clang-13) + AOSP GCC 4.9 binutils. Android 10-15."
+          } > RELEASE_NOTES.md
+          cat RELEASE_NOTES.md
 
-      - name: Create release notes
-        run: |
-          cat > artifacts/FINAL_NOTES.md << 'EOF'
-          ## Kernel Features
-          - **BakaSU**: Enhanced KernelSU integration with improved stability
-          - **SUSFS**: Suspend File System for better performance and battery life
-          - **NoMount**: Support for custom ROM mounting solutions
-          - **Baseband-guard**: Radio stability improvements
-          - **ReKernel**: Various kernel optimizations
-          - **DroidSpaces**: Android container support (ravindu644/droidspaces-oss)
-            
-          ## Build Information
-          - Base: CAF 4.9.337
-          - Compiler: ProtonClang + AOSP GCC 4.9
-          - Target: Xiaomi SDM845 devices
-          - Supported Android versions: 10-15
-          EOF
-          cat artifacts/FINAL_NOTES.md
-
-      - name: Publish to one GitHub Release
+      - name: Publish
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.tag.outputs.TAG }}
-          name: BakaSU ${{ steps.tag.outputs.TAG }}
-          body_path: artifacts/NOTES.md
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: BakaSU ${{ steps.tag.outputs.tag }}
+          body_path: RELEASE_NOTES.md
           draft: false
           prerelease: true
-          files: |
-            artifacts/BakaSU-beryllium-*.zip
-            artifacts/BakaSU-dipper-*.zip
-            artifacts/BakaSU-equuleus-*.zip
-            artifacts/BakaSU-perseus-*.zip
-            artifacts/BakaSU-polaris-*.zip
-            artifacts/BakaSU-ursa-*.zip
+          files: artifacts/BakaSU-*.zip
