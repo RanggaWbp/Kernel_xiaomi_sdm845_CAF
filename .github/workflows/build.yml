@@ -230,21 +230,20 @@ jobs:
 
       - name: Package AnyKernel3 zip
         run: |
+          set -eu
+          ZIP_NAME="BakaSU-${{ matrix.device }}-v${RUN_ID}-$(date +%Y%m%d).zip"
+          echo "ZIP_NAME=$ZIP_NAME" >> "$GITHUB_ENV"
+          mkdir -p artifacts
           # Set up AnyKernel3 structure
           mkdir -p AnyKernel3/images
           cp out/Image.gz-dtb/Image.gz-dtb AnyKernel3/images/boot.img
           cp -r AnyKernel3/* out/img/
-          mkdir -p artifacts
-
-          # Create the zip package from within out/img
-          cd out/img
-          zip -r "../${{ matrix.device }}-bakasu-susfs.zip" .
-          cd ../..
-
-          # Rename to standard format (run from repo root)
-          mv ${{ matrix.device }}-bakasu-susfs.zip artifacts/BakaSU-${{ matrix.device }}-v${RUN_ID}-$(date +%Y%m%d).zip
-
-          echo "ZIP created: artifacts/BakaSU-${{ matrix.device }}-v${RUN_ID}-$(date +%Y%m%d).zip"
+          # Zip straight into artifacts/ by absolute path. The old code zipped
+          # to ../ (i.e. out/) then ran mv from the repo root, where the file
+          # never was.
+          ( cd out/img && zip -r9 "$GITHUB_WORKSPACE/artifacts/$ZIP_NAME" . )
+          echo "ZIP created: artifacts/$ZIP_NAME"
+          unzip -l "artifacts/$ZIP_NAME"
           ls -la artifacts/
 
       - name: Generate changelog
