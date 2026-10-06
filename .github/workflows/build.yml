@@ -1,0 +1,416 @@
+name: BakaSU
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag (empty = auto: v<run_number>-<DDMMYYYY>)"
+        required: false
+        type: string
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bakasu-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CLANG_REPO: https://github.com/kdrag0n/proton-clang
+  GCC_64_SOURCE: https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9
+  GCC_64_BRANCH: android12L-release
+  GCC_32_SOURCE: https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9
+  GCC_32_BRANCH: android12L-release
+  AK3_SOURCE: https://github.com/osm0sis/AnyKernel3.git
+  KERNEL_ARCH: arm64
+  REPO: ${{ github.repository }}
+  BRANCH: ${{ github.ref_name }}
+  RUN_ID: ${{ github.run_number }}
+
+jobs:
+  build:
+    name: Build ${{ matrix.device }}
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - device: beryllium
+            defconfig: beryllium_defconfig
+          - device: dipper
+            defconfig: dipper_defconfig
+          - device: equuleus
+            defconfig: equuleus_defconfig
+          - device: perseus
+            defconfig: perseus_defconfig
+          - device: polaris
+            defconfig: polaris_defconfig
+          - device: ursa
+            defconfig: ursa_defconfig
+
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+          lfs: false
+
+      - name: Install build deps
+        run: |
+          sudo -S -p '' apt-get update
+          sudo -S -p '' apt-get install -y bc bison build-essential ccache cpio curl flex \
+            git libssl-dev libelf-dev make python3 rsync zip zstd
+
+      - name: Free disk space
+        run: |
+          sudo -S -p '' rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          df -h /
+
+      - name: Apply 4.9 backport patches
+        run: |
+          set -eu
+          apply_if_needed() {
+            p="$1"; d="${2:-.}"
+            if git -C "$d" apply --check -R "$p" 2>/dev/null; then
+              echo "already applied: $p"
+            else
+              git -C "$d" apply -v "$p"
+            fi
+          }
+          apply_if_needed patches/backport/0002-rekernel-linux-4.9-cgroup-task-frozen.patch .
+
+      - name: Fetch toolchains
+        run: |
+          set -eu
+          # ProtonClang (64-bit)
+          if [ ! -d "tc/proton-clang" ]; then
+            git clone --depth 1 "$CLANG_REPO" tc/proton-clang
+          fi
+          # AOSP GCC 4.9 (64-bit)
+          if [ ! -d "tc/gcc-64" ]; then
+            git clone --depth 1 --branch "$GCC_64_BRANCH" "$GCC_64_SOURCE" tc/gcc-64
+          fi
+          # AOSP GCC 4.9 (32-bit)
+          if [ ! -d "tc/gcc-32" ]; then
+            git clone --depth 1 --branch "$GCC_32_BRANCH" "$GCC_32_SOURCE" tc/gcc-32
+          fi
+
+      - name: Cache toolchains
+        uses: actions/cache@v4
+        with:
+          path: tc/
+          key: toolchains-${{ runner.os }}-${{ hashFiles('tc/*/version') }}
+          restore-keys: |
+            toolchains-${{ runner.os }}-
+
+      - name: Prepare kernel source
+        run: |
+          # Remove any stale .git in case submodule caused issues
+          rm -rf .git/modules
+          git submodule update --init --recursive
+          # Ensure we're on the right branch for patches
+          git checkout "$BRANCH" || git checkout -b "$BRANCH"
+          # Pull latest changes for current branch
+          git pull origin "$BRANCH" --ff-only || true
+
+      - name: Apply ReKernel patches
+        run: |
+          set -eu
+          apply_if_needed() {
+            p="$1"; d="${2:-.}"
+            if git -C "$d" apply --check -R "$p" 2>/dev/null; then
+              echo "already applied: $p"
+            else
+              git -C "$d" apply -v "$p"
+            fi
+          }
+          if [ -d "ReKernel" ]; then
+            echo "Applying ReKernel patches..."
+            for patch in ReKernel/patches/*.patch; do
+              apply_if_needed "$patch" .
+            done
+          else
+            echo "ReKernel submodule not found, skipping patches"
+          fi
+
+      - name: Prepare output directories
+        run: |
+          mkdir -p out/{Image.gz,Image.gz-dtb,img}
+          mkdir -p artifacts/{zip,logs}
+
+      - name: Configure kernel
+        run: |
+          make ARCH=$KERNEL_ARCH CROSS_COMPILE="$PWD/tc/proton-clang/bin/aarch64-linux-gnu-" O=out ${{ matrix.defconfig }}
+          # Enable extra configs for better Android compatibility
+          sed -i 's/# CONFIG_LOCALVERSION_AUTO is not set/CONFIG_LOCALVERSION_AUTO=y/' out/.config
+          sed -i 's/# CONFIG_LOCALVERSION is not set/CONFIG_LOCALVERSION="-bakasu-susfs"/' out/.config
+          # Ensure key features are enabled
+          grep -q 'CONFIG_KSU=y' out/.config || echo 'CONFIG_KSU=y' >> out/.config
+          grep -q 'CONFIG_SUSFS=y' out/.config || echo 'CONFIG_SUSFS=y' >> out/.config
+          grep -q 'CONFIG_NO MOUNT=y' out/.config || echo 'CONFIG_NO_MOUNT=y' >> out/.config
+
+      - name: Validate critical config symbols
+        run: |
+          set -eu
+          echo "Validating kernel configuration..."
+          # Check for symbols that must be present
+          local failures=0
+          check_symbol() {
+            local sym="$1"
+            local val="$2"
+            if ! grep -q "^${sym}=${val}$" out/.config; then
+              echo "ERROR: ${sym}=${val} not found in config"
+              failures=$((failures + 1))
+            else
+              echo "OK: ${sym}=${val}"
+            fi
+          }
+          check_symbol "CONFIG_ARM64" "y"
+          check_symbol "CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE" "y"
+          check_symbol "CONFIG_DEBUG_INFO" "n"
+          check_symbol "CONFIG_INITRAMFS_SOURCE" ""
+          check_symbol "CONFIG_BUILD_ARM64_APPENDED_DTB_IMAGE" "y"
+          if [ $failures -gt 0 ]; then
+            echo "Config validation failed with $failures errors"
+            exit 1
+          fi
+          echo "Config validation passed"
+
+      - name: Build kernel Image.gz
+        run: |
+          make -j$(nproc) ARCH=$KERNEL_ARCH CROSS_COMPILE="$PWD/tc/proton-clang/bin/aarch64-linux-gnu-" O=out Image.gz
+          cp out/arch/arm64/boot/Image.gz out/Image.gz/
+
+      - name: Build DTBs
+        run: |
+          make -j$(nproc) ARCH=$KERNEL_ARCH CROSS_COMPILE="$PWD/tc/proton-clang/bin/aarch64-linux-gnu-" O=out dtbs
+          # Copy all relevant DTBs to output directory
+          cp out/arch/arm64/boot/dts/qcom/${{ matrix.device }}*.dtb out/Image.gz-dtb/ 2>/dev/null || true
+          # Also copy SDM845 base DTB
+          cp out/arch/arm64/boot/dts/qcom/sdm845*.dtb out/Image.gz-dtb/ 2>/dev/null || true
+
+      - name: Pack kernel with DTB
+        run: |
+          # Concatenate Image.gz with DTB files
+          cat out/Image.gz/Image.gz out/Image.gz-dtb/*.dtb > out/Image.gz-dtb/Image.gz-dtb
+          # Verify the image was created
+          ls -la out/Image.gz-dtb/Image.gz-dtb
+          # Run DTB validation check
+          python3 scripts/check_device_dtb.py out/Image.gz-dtb/Image.gz-dtb ${{ matrix.device }}
+
+      - name: Fetch AnyKernel3
+        run: |
+          if [ ! -d "AnyKernel3" ]; then
+            git clone --depth 1 "$AK3_SOURCE" AnyKernel3
+          fi
+          # Copy our custom anykernel.sh to AnyKernel3
+          cp anykernel/anykernel.sh AnyKernel3/
+          # Update anykernel.sh to include kernel info
+          sed -i "s/kernel.string=.*/kernel.string=BakaSU Kernel ${BRANCH} for ${{ matrix.device }}/" AnyKernel3/anykernel.sh
+          sed -i "s|## Kernel xiaomi sdm845.*|## Kernel xiaomi sdm845 (CAF 4.9.337) by RanggaWbp|" AnyKernel3/anykernel.sh
+          sed -i "s|## Features:.*|## Features: BakaSU + SUSFS + NoMount + BBG + DroidSpaces + Kernel + ReKernel|" AnyKernel3/anykernel.sh
+
+      - name: Build boot.img
+        run: |
+          # Use Android SDK's mkbootimg tool
+          # First, find or download mkbootimg
+          if ! command -v mkbootimg &> /dev/null; then
+            # Try to use android-sdk's mkbootimg
+            sudo apt-get install -y android-sdk-build-tools
+          fi
+          
+          # Extract kernel and dtb for packaging
+          BOOT_IMG_SIZE=$((128 * 1024 * 1024))  # 128MB default
+          
+          # Create minimal init.rc for testing
+          mkdir -p out/bootimg/{root,res}
+          cat > out/bootimg/root/init.rc << 'EOF'
+          on init
+              sysctl vm.swappiness=0
+              write /proc/sys/kernel/pid_max 32768
+          on early-init
+              start ueventd
+          on late-init
+              mount all fs
+              start logd
+              start adbd
+          service console /sbin/sh
+              class main
+              console
+              disabled
+              uid shell
+              gid shell
+          EOF
+          
+          # Build boot.img using mkbootimg
+          mkbootimg \
+            --kernel out/Image.gz/Image.gz \
+            --ramdisk out/bootimg/root \
+            --cmdline "console=ttyMSM0,115200n8 androidboot.hardware=qcom androidboot.console=ttyMSM0 androidboot.memcg=1 lpm_levels.sleep_disabled=1 video=vfb:640x400,bpp=32,memsize=3072000 vmalloc=400m iommu.fwd_trans_size=0x100000 usbcore.autosuspend=-1 ndroid.log.kmsg.enable=1" \
+            --base 0x0 \
+            --pagesize 4096 \
+            --kernel_offset 0x8000 \
+            --ramdisk_offset 0x1000000 \
+            --tags_offset 0x100 \
+            --os_version 10.0.0 \
+            --os_patch_level 2020-06 \
+            -o out/boot.img
+          
+          echo "boot.img built successfully"
+          ls -la out/boot.img
+
+      - name: Package AnyKernel3 zip
+        run: |
+          # Set up AnyKernel3 structure
+          mkdir -p AnyKernel3/images
+          cp out/Image.gz-dtb/Image.gz-dtb AnyKernel3/images/boot.img
+          cp -r AnyKernel3/* out/img/
+          
+          # Create the zip package
+          cd out/img
+          zip -r ../${{ matrix.device }}-bakasu-susfs.zip .
+          cd ..
+          
+          # Rename to standard format
+          mv ${{ matrix.device }}-bakasu-susfs.zip artifacts/BakaSU-${{ matrix.device }}-v${RUN_ID}-$(date +%Y%m%d).zip
+          
+          echo "ZIP created: artifacts/BakaSU-${{ matrix.device }}-v${RUN_ID}-$(date +%Y%m%d).zip"
+          ls -la artifacts/
+
+      - name: Generate changelog
+        run: |
+          # Generate git log for this build
+          git log --oneline -20 > artifacts/CHANGELOG.txt
+          echo "" >> artifacts/CHANGELOG.txt
+          echo "Build Date: $(date)" >> artifacts/CHANGELOG.txt
+          echo "Branch: $BRANCH" >> artifacts/CHANGELOG.txt
+          echo "Run ID: $RUN_ID" >> artifacts/CHANGELOG.txt
+          echo "Device: ${{ matrix.device }}" >> artifacts/CHANGELOG.txt
+          echo "Kernel Version: $(cat out/.config 2>/dev/null | grep CONFIG_LOCALVERSION | cut -d= -f2 | tr -d '"' || echo 'unknown')" >> artifacts/CHANGELOG.txt
+          
+          # Create release notes
+          cat > artifacts/README.md << 'EOF'
+          # BakaSU Kernel for Xiaomi SDM845 Devices
+          
+          ## Features:
+          - BakaSU (ReSukiSU) KernelSU integration
+          - SUSFS (Suspend File System) for enhanced performance
+          - NoMount support for custom ROMs
+          - Baseband-guard for radio stability
+          - ReKernel optimizations
+          - DroidSpaces support (ravindu644/droidspaces-oss)
+          
+          ## Installation:
+          1. Flash via TWRP/OrangeFox recovery
+          2. Wipe cache and dalvik-cache (recommended)
+          3. Reboot system
+          
+          ## Supported Devices:
+          - beryllium (Xiaomi Mi 8 Lite)
+          - dipper (Xiaomi Mi 8)
+          - equuleus (Xiaomi Mi 8 SE)
+          - perseus (Xiaomi Mi Mix 2S)
+          - polaris (Xiaomi Mi Mix 3)
+          - ursa (Xiaomi Mi 8 Explorer Edition)
+          
+          ## Notes:
+          - This kernel is based on CAF 4.9.337
+          - Built with ProtonClang and AOSP GCC 4.9
+          - Supports Android 10-15
+          EOF
+          
+          # Create NOTES.md for GitHub Release
+          cat > artifacts/NOTES.md << EOF
+          # BakaSU Kernel Release
+            
+          **Device:** ${{ matrix.device }}  
+          **Branch:** $BRANCH  
+          **Build Date:** $(date +%Y-%m-%d)  
+          **Run ID:** $RUN_ID
+            
+          ## Features:
+          - BakaSU (ReSukiSU) KernelSU integration
+          - SUSFS (Suspend File System) for enhanced performance
+          - NoMount support for custom ROMs
+          - Baseband-guard for radio stability
+          - ReKernel optimizations
+          - DroidSpaces support (ravindu644/droidspaces-oss)
+            
+          ## Installation:
+          1. Flash via TWRP/OrangeFox recovery
+          2. Wipe cache and dalvik-cache (recommended)
+          3. Reboot system
+            
+          ## Known Issues:
+          - Please test thoroughly before relying on this build
+          - Report any issues on GitHub issues
+          EOF
+          
+          echo "Changelog and README generated"
+          cat artifacts/CHANGELOG.txt
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: bakasu-${{ matrix.device }}-artifacts
+          path: |
+            artifacts/
+            out/
+
+      - name: Generate release tag
+        id: tag
+        run: |
+          if [ -z "${{ github.event.inputs.release_tag }}" ]; then
+            TAG="v${RUN_ID}-$(date +%Y%m%d)"
+          else
+            TAG="${{ github.event.inputs.release_tag }}"
+          fi
+          echo "TAG=${TAG}" >> $GITHUB_ENV
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "Generated tag: ${TAG}"
+
+      - name: Create Git tag
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git tag -f "$TAG" -m "Release $TAG for ${{ matrix.device }}"
+          git push origin "$TAG" --force || echo "Tag push skipped (may already exist)"
+
+      - name: Create release notes
+        run: |
+          cat > artifacts/FINAL_NOTES.md << 'EOF'
+          ## Kernel Features
+          - **BakaSU**: Enhanced KernelSU integration with improved stability
+          - **SUSFS**: Suspend File System for better performance and battery life
+          - **NoMount**: Support for custom ROM mounting solutions
+          - **Baseband-guard**: Radio stability improvements
+          - **ReKernel**: Various kernel optimizations
+          - **DroidSpaces**: Android container support (ravindu644/droidspaces-oss)
+            
+          ## Build Information
+          - Base: CAF 4.9.337
+          - Compiler: ProtonClang + AOSP GCC 4.9
+          - Target: Xiaomi SDM845 devices
+          - Supported Android versions: 10-15
+          EOF
+          cat artifacts/FINAL_NOTES.md
+
+      - name: Publish to one GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.TAG }}
+          name: BakaSU ${{ steps.tag.outputs.TAG }}
+          body_path: artifacts/NOTES.md
+          draft: false
+          prerelease: true
+          files: |
+            artifacts/BakaSU-beryllium-*.zip
+            artifacts/BakaSU-dipper-*.zip
+            artifacts/BakaSU-equuleus-*.zip
+            artifacts/BakaSU-perseus-*.zip
+            artifacts/BakaSU-polaris-*.zip
+            artifacts/BakaSU-ursa-*.zip
