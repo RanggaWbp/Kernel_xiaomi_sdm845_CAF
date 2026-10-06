@@ -34,7 +34,7 @@ device.name6=ursa
 # cannot contain a '=' sign).
 kernel.string=BakaSU for Xiaomi SDM845 by RanggaWbp
 supported.versions="10-15"
-supported.patchlevels="2020-01-"
+supported.patchlevels=
 supported.vendorpatchlevels=
 
 # boot shell variables (UPPERCASE -- these are what ak3-core.sh consumes)
