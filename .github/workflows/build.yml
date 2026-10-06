@@ -234,15 +234,16 @@ jobs:
           mkdir -p AnyKernel3/images
           cp out/Image.gz-dtb/Image.gz-dtb AnyKernel3/images/boot.img
           cp -r AnyKernel3/* out/img/
-          
-          # Create the zip package
+          mkdir -p artifacts
+
+          # Create the zip package from within out/img
           cd out/img
-          zip -r ../${{ matrix.device }}-bakasu-susfs.zip .
-          cd ..
-          
-          # Rename to standard format
+          zip -r "../${{ matrix.device }}-bakasu-susfs.zip" .
+          cd ../..
+
+          # Rename to standard format (run from repo root)
           mv ${{ matrix.device }}-bakasu-susfs.zip artifacts/BakaSU-${{ matrix.device }}-v${RUN_ID}-$(date +%Y%m%d).zip
-          
+
           echo "ZIP created: artifacts/BakaSU-${{ matrix.device }}-v${RUN_ID}-$(date +%Y%m%d).zip"
           ls -la artifacts/
 
