@@ -261,11 +261,9 @@ jobs:
           mkdir -p artifacts
           # Set up AnyKernel3 structure
           mkdir -p AnyKernel3/images
-          cp out/Image.gz-dtb/Image.gz-dtb AnyKernel3/images/boot.img
+          cp out/Image.gz-dtb/Image.gz-dtb AnyKernel3/Image.gz-dtb
           cp -r AnyKernel3/* out/img/
-          # Zip straight into artifacts/ by absolute path. The old code zipped
-          # to ../ (i.e. out/) then ran mv from the repo root, where the file
-          # never was.
+          # Zip straight into artifacts/ by absolute path
           ( cd out/img && zip -r9 "$GITHUB_WORKSPACE/artifacts/$ZIP_NAME" . )
           echo "ZIP created: artifacts/$ZIP_NAME"
           unzip -l "artifacts/$ZIP_NAME"
