@@ -375,6 +375,7 @@ jobs:
             echo "- **Baseband-guard** (vc-teahouse/Baseband-guard)"
             echo "- **ReKernel** optimizations"
             echo "- **DroidSpaces** container support"
+            echo "- **NTSYNC** (/dev/ntsync) NT sync primitives for Wine/Proton"
             echo
             echo "### Install"
             echo "1. Flash the zip for your codename via TWRP / OrangeFox."
