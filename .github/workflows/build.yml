@@ -171,8 +171,10 @@ jobs:
           # Ensure key features are enabled
           grep -q 'CONFIG_KSU=y' out/.config || echo 'CONFIG_KSU=y' >> out/.config
           grep -q 'CONFIG_SUSFS=y' out/.config || echo 'CONFIG_SUSFS=y' >> out/.config
-          grep -q 'CONFIG_NO MOUNT=y' out/.config || echo 'CONFIG_NO_MOUNT=y' >> out/.config
+          grep -q 'CONFIG_NO_MOUNT=y' out/.config || echo 'CONFIG_NO_MOUNT=y' >> out/.config
           grep -q 'CONFIG_NTSYNC=y' out/.config || echo 'CONFIG_NTSYNC=y' >> out/.config
+          grep -q 'CONFIG_SCHED_BORE=y' out/.config || echo 'CONFIG_SCHED_BORE=y' >> out/.config
+          grep -q 'CONFIG_IOSCHED_ADIOS=y' out/.config || echo 'CONFIG_IOSCHED_ADIOS=y' >> out/.config
 
       - name: Validate critical config symbols
         run: |
@@ -376,6 +378,8 @@ jobs:
             echo "- **ReKernel** optimizations"
             echo "- **DroidSpaces** container support"
             echo "- **NTSYNC** (/dev/ntsync) NT sync primitives for Wine/Proton"
+            echo "- **BORE** CPU scheduler (EEVDF burst-aware vruntime)"
+            echo "- **ADIOS** I/O scheduler (adaptive deadline)"
             echo
             echo "### Install"
             echo "1. Flash the zip for your codename via TWRP / OrangeFox."

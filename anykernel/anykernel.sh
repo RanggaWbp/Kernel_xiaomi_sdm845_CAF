@@ -2,7 +2,7 @@
 ## osm0sis @ xda-developers
 ## Kernel xiaomi sdm845 (CAF 4.9.337) by RanggaWbp
 ##
-## Features: BakaSU + SUSFS + NoMount + BBG + DroidSpaces + ReKernel + NTSYNC
+## Features: BakaSU + SUSFS + NoMount + BBG + DroidSpaces + ReKernel + NTSYNC + BORE + ADIOS
 ### AnyKernel properties
 # NOTE: only the key=value lines above this point are read as properties, and
 # they are read lowercase by update-binary's file_getprop. The shell variables
@@ -69,7 +69,7 @@ ui_print "  by RanggaWbp"
 # this always shows what ro.product.device actually reports, which is what you
 # want when a new device has to be added to device.name1-6 above.
 ui_print "  Device: $(getprop ro.product.device 2>/dev/null)"
-ui_print "  BakaSU + SUSFS + NoMount + BBG + DroidSpaces + ReKernel + NTSYNC"
+ui_print "  BakaSU + SUSFS + NoMount + BBG + DroidSpaces + ReKernel + NTSYNC + BORE + ADIOS"
 ui_print "  NTSYNC: /dev/ntsync (Wine/emulator sync)"
 ## end properties
 
