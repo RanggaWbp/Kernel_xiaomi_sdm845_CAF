@@ -172,6 +172,7 @@ jobs:
           grep -q 'CONFIG_KSU=y' out/.config || echo 'CONFIG_KSU=y' >> out/.config
           grep -q 'CONFIG_SUSFS=y' out/.config || echo 'CONFIG_SUSFS=y' >> out/.config
           grep -q 'CONFIG_NO MOUNT=y' out/.config || echo 'CONFIG_NO_MOUNT=y' >> out/.config
+          grep -q 'CONFIG_NTSYNC=y' out/.config || echo 'CONFIG_NTSYNC=y' >> out/.config
 
       - name: Validate critical config symbols
         run: |
@@ -194,6 +195,7 @@ jobs:
           check_symbol "CONFIG_DEBUG_INFO" "y"
           check_symbol "CONFIG_INITRAMFS_SOURCE" '""'
           check_symbol "CONFIG_BUILD_ARM64_APPENDED_DTB_IMAGE" "y"
+          check_symbol "CONFIG_NTSYNC" "y"
           if [ $failures -gt 0 ]; then
             echo "Config validation failed with $failures errors"
             exit 1
@@ -208,6 +210,8 @@ jobs:
           # submodule, so Kbuild stays the single source of truth.
           make -j$(nproc) ARCH=$KERNEL_ARCH CC="$PWD/tc/proton-clang/bin/clang" CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE="$PWD/tc/gcc-64/bin/aarch64-linux-android-" CROSS_COMPILE_ARM32="$PWD/tc/gcc-32/bin/arm-linux-androideabi-" O=out Image.gz 2>&1 | tee build-${{ matrix.device }}.log
           cp out/arch/arm64/boot/Image.gz out/Image.gz/
+          # ntsync must be built in, not silently dropped by Kconfig deps
+          test -f out/drivers/misc/ntsync.o || { echo 'ERROR: ntsync.o not built'; exit 1; }
           mkdir -p artifacts
           # %q: values get shell-quoted, because BMGR contains spaces and commas
           # and the file is sourced later (unquoted, `Official,` ran as a command).
@@ -245,7 +249,7 @@ jobs:
           # Update anykernel.sh to include kernel info
           sed -i "s/kernel.string=.*/kernel.string=BakaSU Kernel ${BRANCH} for ${{ matrix.device }}/" AnyKernel3/anykernel.sh
           sed -i "s|## Kernel xiaomi sdm845.*|## Kernel xiaomi sdm845 (CAF 4.9.337) by RanggaWbp|" AnyKernel3/anykernel.sh
-          sed -i "s|## Features:.*|## Features: BakaSU + SUSFS + NoMount + BBG + DroidSpaces + Kernel + ReKernel|" AnyKernel3/anykernel.sh
+          sed -i "s|## Features:.*|## Features: BakaSU + SUSFS + NoMount + BBG + DroidSpaces + Kernel + ReKernel + NTSYNC|" AnyKernel3/anykernel.sh
 
       - name: Package AnyKernel3 zip
         run: |
