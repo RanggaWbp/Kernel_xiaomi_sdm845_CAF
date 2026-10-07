@@ -246,6 +246,8 @@ jobs:
           if [ ! -d "AnyKernel3" ]; then
             git clone --depth 1 "$AK3_SOURCE" AnyKernel3
           fi
+          # Remove images folder - we want Image.gz-dtb at zip root
+          rm -rf AnyKernel3/images
           # Copy our custom anykernel.sh to AnyKernel3
           cp anykernel/anykernel.sh AnyKernel3/
           # Update anykernel.sh to include kernel info
@@ -260,7 +262,6 @@ jobs:
           echo "ZIP_NAME=$ZIP_NAME" >> "$GITHUB_ENV"
           mkdir -p artifacts
           # Set up AnyKernel3 structure
-          mkdir -p AnyKernel3/images
           cp out/Image.gz-dtb/Image.gz-dtb AnyKernel3/Image.gz-dtb
           cp -r AnyKernel3/* out/img/
           # Zip straight into artifacts/ by absolute path
