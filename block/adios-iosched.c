@@ -215,7 +215,7 @@ static int adios_dispatch(struct request_queue *q, int force)
 					      struct adios_rq_data, list);
 			list_del(&rd->list);
 			rb_erase(&rd->rb_node, &ad->dl_groups[optype].rb_root);
-			rb_clear_node(&rd->rb_node);
+			RB_CLEAR_NODE(&rd->rb_node);
 			ad->batch_count[optype]++;
 			ad->current_optype = optype;
 			ad->last_dispatch = ktime_get_ns();
@@ -293,7 +293,7 @@ static void adios_merged_requests(struct request_queue *q, struct request *req,
 		list_del(&rd->list);
 	if (!RB_EMPTY_NODE(&rd->rb_node)) {
 		rb_erase(&rd->rb_node, &ad->dl_groups[rd->optype].rb_root);
-		rb_clear_node(&rd->rb_node);
+		RB_CLEAR_NODE(&rd->rb_node);
 	}
 	/* Transfer rd to merged request */
 	req->elv.priv[0] = rd;
@@ -364,7 +364,7 @@ static void adios_exit_queue(struct elevator_queue *e)
 			list_del_init(&rd->list);
 			if (!RB_EMPTY_NODE(&rd->rb_node)) {
 				rb_erase(&rd->rb_node, &ad->dl_groups[i].rb_root);
-				rb_clear_node(&rd->rb_node);
+				RB_CLEAR_NODE(&rd->rb_node);
 			}
 			kfree(rd);
 		}
