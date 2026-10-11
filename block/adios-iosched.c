@@ -79,7 +79,7 @@ struct adios_data {
 	unsigned int batch_count[ADIOS_OPTYPES];
 	unsigned int current_optype;
 	u64 last_dispatch;
-	void *adios_rq_cachep;  // kmem cache handle
+	struct kmem_cache *adios_rq_cachep;
 };
 
 static u64 default_latency_target[ADIOS_OPTYPES] = {
@@ -160,7 +160,7 @@ static void lm_update_latency(struct latency_model *model, u32 block_size, u64 m
 static void adios_add_request(struct request_queue *q, struct request *rq)
 {
 	struct adios_data *ad = q->elevator->elevator_data;
-	struct adios_rq_data *rd = kmem_cache_alloc(adios_rq_cachep, GFP_KERNEL);
+	struct adios_rq_data *rd = kmem_cache_alloc(ad->adios_rq_cachep, GFP_KERNEL);
 	unsigned long flags;
 	u8 optype = adios_optype(rq);
 
@@ -245,7 +245,7 @@ static void adios_completed_request(struct request_queue *q, struct request *rq)
 
 	// Verify rd->rq == rq cross-check
 	if (rd && rd->rq == rq) {
-		kmem_cache_free(adios_rq_cachep, rd);
+		kmem_cache_free(ad->adios_rq_cachep, rd);
 		rq->elv.priv[0] = NULL;
 	}
 }
@@ -307,10 +307,10 @@ static int adios_init_queue(struct request_queue *q, struct elevator_type *e)
 	spin_lock_init(&ad->lock);
 
 	// Initialize ADIOS rq_data kmem cache
-	adios_rq_cachep = kmem_cache_create("adios_rq_data",
+	ad->adios_rq_cachep = kmem_cache_create("adios_rq_data",
 					    sizeof(struct adios_rq_data),
 					    0, 0, NULL);
-	if (!adios_rq_cachep) {
+	if (!ad->adios_rq_cachep) {
 		kfree(ad);
 		kobject_put(&eq->kobj);
 		return -ENOMEM;
@@ -350,17 +350,19 @@ static void adios_exit_queue(struct elevator_queue *e)
 		return;
 
 	// Free all remaining rq_data entries
-	struct request *rq, *tmp;
-	list_for_each_entry_safe(rq, tmp, &ad->dl_groups[i].rqs, queuelist) {
-		list_del_init(&rq->queuelist);
-		if (!RB_EMPTY_NODE(&rq->rb_node))
-			elv_rb_del(&ad->dl_groups[i].rb_root, rq);
+	for (i = 0; i < ADIOS_OPTYPES; i++) {
+		struct request *rq, *tmp;
+		list_for_each_entry_safe(rq, tmp, &ad->dl_groups[i].rqs, queuelist) {
+			list_del_init(&rq->queuelist);
+			if (!RB_EMPTY_NODE(&rq->rb_node))
+				elv_rb_del(&ad->dl_groups[i].rb_root, rq);
+		}
 	}
-	
-	if (adios_rq_cachep) {
-		kmem_cache_destroy(adios_rq_cachep);
+
+	if (ad->adios_rq_cachep) {
+		kmem_cache_destroy(ad->adios_rq_cachep);
 	}
-	tkfree(ad);
+	kfree(ad);
 }
 
 static ssize_t adios_global_latency_window_show(struct elevator_queue *e, char *page)
