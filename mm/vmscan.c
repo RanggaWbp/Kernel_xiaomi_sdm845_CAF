@@ -2532,10 +2532,43 @@ static struct lru_gen_mm_list *get_mm_list(struct mem_cgroup *memcg)
 	return &mm_list;
 }
 
+/*
+ * 4.9 keeps get_mem_cgroup_from_mm() static in mm/memcontrol.c, so MGLRU needs
+ * its own copy. Like upstream it holds a css reference that lru_gen_del_mm()
+ * drops again -- that pairing is what keeps the css refcount balanced.
+ * css_tryget() (not css_tryget_online) is the 4.9 idiom: an offlined css must
+ * not be able to spin this loop.
+ */
+static struct mem_cgroup *lru_gen_get_memcg_from_mm(struct mm_struct *mm)
+{
+#ifdef CONFIG_MEMCG
+	struct mem_cgroup *memcg;
+
+	if (mem_cgroup_disabled())
+		return NULL;
+
+	rcu_read_lock();
+	do {
+		if (unlikely(!mm))
+			memcg = root_mem_cgroup;
+		else {
+			memcg = mem_cgroup_from_task(rcu_dereference(mm->owner));
+			if (unlikely(!memcg))
+				memcg = root_mem_cgroup;
+		}
+	} while (!css_tryget(&memcg->css));
+	rcu_read_unlock();
+
+	return memcg;
+#else
+	return NULL;
+#endif
+}
+
 void lru_gen_add_mm(struct mm_struct *mm)
 {
 	int nid;
-	struct mem_cgroup *memcg = mem_cgroup_from_task(mm->owner);
+	struct mem_cgroup *memcg = lru_gen_get_memcg_from_mm(mm);
 	struct lru_gen_mm_list *mm_list = get_mm_list(memcg);
 
 	VM_BUG_ON_MM(!list_empty(&mm->lrugen.list), mm);
@@ -2598,8 +2631,10 @@ void lru_gen_del_mm(struct mm_struct *mm)
 	spin_unlock(&mm_list->lock);
 
 #ifdef CONFIG_MEMCG
-	css_put(&mm->lrugen.memcg->css);
-	mm->lrugen.memcg = NULL;
+	if (mm->lrugen.memcg) {
+		css_put(&mm->lrugen.memcg->css);
+		mm->lrugen.memcg = NULL;
+	}
 #endif
 }
 
@@ -3882,7 +3917,9 @@ static long get_nr_to_scan(struct lruvec *lruvec, struct scan_control *sc, int s
 	return try_to_inc_max_seq(lruvec, sc, swappiness, max_seq, true) ? nr_to_scan : 0;
 }
 
-static void lru_gen_shrink_lruvec(struct lruvec *lruvec, struct scan_control *sc)
+/* Returns the number of pages MGLRU actually scanned for this lruvec. */
+static unsigned long lru_gen_shrink_lruvec(struct lruvec *lruvec,
+					   struct scan_control *sc)
 {
 	struct blk_plug plug;
 	long scanned = 0;
@@ -3927,6 +3964,8 @@ static void lru_gen_shrink_lruvec(struct lruvec *lruvec, struct scan_control *sc
 
 	if (current_is_kswapd())
 		current->reclaim_state->mm_walk_args = NULL;
+
+	return scanned;
 }
 
 /******************************************************************************
@@ -4600,8 +4639,10 @@ static void lru_gen_age_node(struct pglist_data *pgdat, struct scan_control *sc)
 {
 }
 
-static void lru_gen_shrink_lruvec(struct lruvec *lruvec, struct scan_control *sc)
+static unsigned long lru_gen_shrink_lruvec(struct lruvec *lruvec,
+					   struct scan_control *sc)
 {
+	return 0;
 }
 
 #endif /* CONFIG_LRU_GEN */
@@ -4623,8 +4664,14 @@ static void shrink_node_memcg(struct pglist_data *pgdat, struct mem_cgroup *memc
 	bool scan_adjusted;
 
 #ifdef CONFIG_LRU_GEN
+	/*
+	 * get_scan_count() is what normally fills *lru_pages (the denominator
+	 * of shrink_slab()'s pressure model). MGLRU does its own scan
+	 * accounting and does not reach it, so hand back what it did scan --
+	 * leaving *lru_pages unset would read uninitialised stack here.
+	 */
 	if (lru_gen_enabled()) {
-		lru_gen_shrink_lruvec(lruvec, sc);
+		*lru_pages = lru_gen_shrink_lruvec(lruvec, sc);
 		return;
 	}
 #endif
