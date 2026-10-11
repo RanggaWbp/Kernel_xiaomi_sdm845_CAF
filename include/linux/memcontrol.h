@@ -272,6 +272,9 @@ struct mem_cgroup {
 	spinlock_t event_list_lock;
 
 	struct mem_cgroup_per_node *nodeinfo[0];
+#ifdef CONFIG_LRU_GEN
+	struct lru_gen_mm_list mm_list;
+#endif
 	/* WARNING: nodeinfo must be the last member here */
 };
 
