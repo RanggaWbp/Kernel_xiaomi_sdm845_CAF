@@ -63,6 +63,14 @@ struct dl_group {
 	u64 deadline;
 };
 
+struct adios_rq_data {
+	struct rb_node rb_node;
+	struct list_head list;
+	u64 deadline;
+	u8 optype;
+	struct request *rq;
+};
+
 struct adios_data {
 	struct request_queue *queue;
 	struct latency_model models[ADIOS_OPTYPES];
@@ -71,6 +79,7 @@ struct adios_data {
 	unsigned int batch_count[ADIOS_OPTYPES];
 	unsigned int current_optype;
 	u64 last_dispatch;
+	void *adios_rq_cachep;  // kmem cache handle
 };
 
 static u64 default_latency_target[ADIOS_OPTYPES] = {
@@ -151,19 +160,25 @@ static void lm_update_latency(struct latency_model *model, u32 block_size, u64 m
 static void adios_add_request(struct request_queue *q, struct request *rq)
 {
 	struct adios_data *ad = q->elevator->elevator_data;
+	struct adios_rq_data *rd = kmem_cache_alloc(adios_rq_cachep, GFP_KERNEL);
 	unsigned long flags;
 	u8 optype = adios_optype(rq);
 
 	spin_lock_irqsave(&ad->lock, flags);
 	list_add_tail(&rq->queuelist, &ad->dl_groups[optype].rqs);
 	elv_rb_add(&ad->dl_groups[optype].rb_root, rq);
+	
+	// Map request to ADIOS internal data
+	rd->rq = rq;
+	rq->elv.priv[0] = rd;
+	
 	spin_unlock_irqrestore(&ad->lock, flags);
 }
 
 static int adios_dispatch(struct request_queue *q, int force)
 {
 	struct adios_data *ad = q->elevator->elevator_data;
-	struct request *rq = NULL;
+	struct adios_rq_data *rd = NULL;
 	unsigned long flags;
 	u8 optype;
 	int i, pass;
@@ -184,21 +199,21 @@ static int adios_dispatch(struct request_queue *q, int force)
 	 * stranded in dl_groups.  That only bit the busy partitions, which
 	 * hit their batch limit within seconds.
 	 */
-	for (pass = 0; pass < 2 && !rq; pass++) {
+	for (pass = 0; pass < 2 && !rd; pass++) {
 		for (i = 0; i < ADIOS_OPTYPES; i++) {
 			optype = (ad->current_optype + i) % ADIOS_OPTYPES;
 			if (list_empty(&ad->dl_groups[optype].rqs))
 				continue;
 			if (!pass && !force &&
 			    ad->batch_count[optype] >=
-					ad->models[optype].params.batch_limit[optype]) {
+			    ad->models[optype].params.batch_limit[optype]) {
 				ad->batch_count[optype] = 0;
 				continue;
 			}
-			rq = list_first_entry(&ad->dl_groups[optype].rqs,
-				struct request, queuelist);
-			list_del(&rq->queuelist);
-			elv_rb_del(&ad->dl_groups[optype].rb_root, rq);
+			rd = list_first_entry(&ad->dl_groups[optype].rqs,
+					    struct adios_rq_data, list);
+			list_del(&rd->list);
+			elv_rb_del(&ad->dl_groups[optype].rb_root, rd->rq);
 			ad->batch_count[optype]++;
 			ad->current_optype = optype;
 			ad->last_dispatch = ktime_get_ns();
@@ -206,16 +221,17 @@ static int adios_dispatch(struct request_queue *q, int force)
 		}
 	}
 
-	if (rq)
-		elv_dispatch_add_tail(q, rq);
+	if (rd)
+		elv_dispatch_add_tail(q, rd->rq);
 
 	spin_unlock_irqrestore(&ad->lock, flags);
-	return rq ? 1 : 0;
+	return rd ? 1 : 0;
 }
 
 static void adios_completed_request(struct request_queue *q, struct request *rq)
 {
 	struct adios_data *ad = q->elevator->elevator_data;
+	struct adios_rq_data *rd = rq->elv.priv[0];
 	unsigned long flags;
 	u64 now, latency;
 	u8 optype = adios_optype(rq);
@@ -226,6 +242,12 @@ static void adios_completed_request(struct request_queue *q, struct request *rq)
 	spin_lock_irqsave(&ad->lock, flags);
 	lm_update_latency(&ad->models[optype], blk_rq_sectors(rq) << 9, latency);
 	spin_unlock_irqrestore(&ad->lock, flags);
+
+	// Verify rd->rq == rq cross-check
+	if (rd && rd->rq == rq) {
+		kmem_cache_free(adios_rq_cachep, rd);
+		rq->elv.priv[0] = NULL;
+	}
 }
 
 static void adios_merged_request(struct request_queue *q, struct request *req, int type)
@@ -284,6 +306,16 @@ static int adios_init_queue(struct request_queue *q, struct elevator_type *e)
 	ad->queue = q;
 	spin_lock_init(&ad->lock);
 
+	// Initialize ADIOS rq_data kmem cache
+	adios_rq_cachep = kmem_cache_create("adios_rq_data",
+					    sizeof(struct adios_rq_data),
+					    0, 0, NULL);
+	if (!adios_rq_cachep) {
+		kfree(ad);
+		kobject_put(&eq->kobj);
+		return -ENOMEM;
+	}
+
 	for (i = 0; i < ADIOS_OPTYPES; i++) {
 		INIT_LIST_HEAD(&ad->dl_groups[i].rqs);
 		ad->dl_groups[i].rb_root = RB_ROOT;
@@ -317,15 +349,18 @@ static void adios_exit_queue(struct elevator_queue *e)
 	if (!ad)
 		return;
 
-	for (i = 0; i < ADIOS_OPTYPES; i++) {
-		struct request *rq, *tmp;
-		list_for_each_entry_safe(rq, tmp, &ad->dl_groups[i].rqs, queuelist) {
-			list_del_init(&rq->queuelist);
-			if (!RB_EMPTY_NODE(&rq->rb_node))
-				elv_rb_del(&ad->dl_groups[i].rb_root, rq);
-		}
+	// Free all remaining rq_data entries
+	struct request *rq, *tmp;
+	list_for_each_entry_safe(rq, tmp, &ad->dl_groups[i].rqs, queuelist) {
+		list_del_init(&rq->queuelist);
+		if (!RB_EMPTY_NODE(&rq->rb_node))
+			elv_rb_del(&ad->dl_groups[i].rb_root, rq);
 	}
-	kfree(ad);
+	
+	if (adios_rq_cachep) {
+		kmem_cache_destroy(adios_rq_cachep);
+	}
+	tkfree(ad);
 }
 
 static ssize_t adios_global_latency_window_show(struct elevator_queue *e, char *page)
