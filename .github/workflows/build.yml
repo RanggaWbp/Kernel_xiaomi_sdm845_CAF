@@ -175,6 +175,7 @@ jobs:
           grep -q 'CONFIG_NTSYNC=y' out/.config || echo 'CONFIG_NTSYNC=y' >> out/.config
           grep -q 'CONFIG_SCHED_BORE=y' out/.config || echo 'CONFIG_SCHED_BORE=y' >> out/.config
           grep -q 'CONFIG_IOSCHED_ADIOS=y' out/.config || echo 'CONFIG_IOSCHED_ADIOS=y' >> out/.config
+          grep -q 'CONFIG_LRU_GEN=y' out/.config || echo 'CONFIG_LRU_GEN=y' >> out/.config
 
       - name: Validate critical config symbols
         run: |
@@ -198,6 +199,7 @@ jobs:
           check_symbol "CONFIG_INITRAMFS_SOURCE" '""'
           check_symbol "CONFIG_BUILD_ARM64_APPENDED_DTB_IMAGE" "y"
           check_symbol "CONFIG_NTSYNC" "y"
+          check_symbol "CONFIG_LRU_GEN" "y"
           if [ $failures -gt 0 ]; then
             echo "Config validation failed with $failures errors"
             exit 1
@@ -253,7 +255,7 @@ jobs:
           # Update anykernel.sh to include kernel info
           sed -i "s/kernel.string=.*/kernel.string=BakaSU Kernel ${BRANCH} for ${{ matrix.device }}/" AnyKernel3/anykernel.sh
           sed -i "s|## Kernel xiaomi sdm845.*|## Kernel xiaomi sdm845 (CAF 4.9.337) by RanggaWbp|" AnyKernel3/anykernel.sh
-          sed -i "s|## Features:.*|## Features: BakaSU + SUSFS + NoMount + BBG + DroidSpaces + Kernel + ReKernel + NTSYNC|" AnyKernel3/anykernel.sh
+          sed -i "s|## Features:.*|## Features: BakaSU + SUSFS + NoMount + BBG + DroidSpaces + ReKernel + NTSYNC + BORE + ADIOS + MGLRU|" AnyKernel3/anykernel.sh
 
       - name: Package AnyKernel3 zip
         run: |
@@ -379,6 +381,7 @@ jobs:
             echo "- **NTSYNC** (/dev/ntsync) NT sync primitives for Wine/Proton"
             echo "- **BORE** CPU scheduler (EEVDF burst-aware vruntime)"
             echo "- **ADIOS** I/O scheduler (adaptive deadline)"
+            echo "- **MGLRU** Multi-Gen LRU page reclaim (MGLRU v5 backport)"
             echo
             echo "### Install"
             echo "1. Flash the zip for your codename via TWRP / OrangeFox."
