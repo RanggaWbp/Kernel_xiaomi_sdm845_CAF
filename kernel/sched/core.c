@@ -3803,10 +3803,7 @@ context_switch(struct rq *rq, struct task_struct *prev,
 		 * has next->mm == NULL, and the lazy tlb path above keeps
 		 * oldmm active anyway, so there is nothing to account for.
 		 */
-		/* DEBUG BISECT C: disable mm switch accounting */
-#if 0
 		lru_gen_switch_mm(oldmm, mm);
-#endif
 	}
 
 	if (!prev->mm) {
@@ -6572,9 +6569,7 @@ void idle_task_exit(void)
 
 	if (mm != &init_mm) {
 		switch_mm(mm, &init_mm, current);
-#if 0 /* DEBUG BISECT C */
 		lru_gen_switch_mm(mm, &init_mm);
-#endif
 		finish_arch_post_lock_switch();
 	}
 	mmdrop(mm);
