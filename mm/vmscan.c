@@ -3035,7 +3035,8 @@ static void reset_batch_size(struct lruvec *lruvec, struct mm_walk_args *args)
 
 		if (lru_gen_is_active(lruvec, gen))
 			lru += LRU_ACTIVE;
-		update_lru_size(lruvec, lru, zone, delta);
+		/* node/zone only; per-memcg lru_zone_size is owned by lru_gen_update_size() */
+		__update_lru_size(lruvec, lru, zone, delta);
 	}
 }
 
