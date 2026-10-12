@@ -33,7 +33,6 @@
 /*-************************************
  *	Dependencies
  **************************************/
-#include <linux/lz4.h>
 #include "lz4defs.h"
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -446,7 +445,7 @@ _last_literals:
 			*op++ = (BYTE)(lastRun << ML_BITS);
 		}
 
-		memcpy(op, anchor, lastRun);
+		LZ4_memcpy(op, anchor, lastRun);
 
 		op += lastRun;
 	}
@@ -708,7 +707,7 @@ _last_literals:
 		} else {
 			*op++ = (BYTE)(lastRunSize<<ML_BITS);
 		}
-		memcpy(op, anchor, lastRunSize);
+		LZ4_memcpy(op, anchor, lastRunSize);
 		op += lastRunSize;
 	}
 
@@ -939,8 +938,9 @@ EXPORT_SYMBOL(LZ4_compress_fast_continue);
 /*-******************************
  *	For backwards compatibility
  ********************************/
-int lz4_compress(const unsigned char *src, size_t src_len, unsigned char *dst,
-	size_t *dst_len, void *wrkmem) {
+int lz4_compress(const unsigned char *src, size_t src_len,
+	unsigned char *dst, size_t *dst_len, void *wrkmem)
+{
 	*dst_len = LZ4_compress_default(src, dst, src_len,
 		LZ4_COMPRESSBOUND(src_len), wrkmem);
 
