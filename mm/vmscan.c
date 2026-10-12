@@ -3333,8 +3333,13 @@ static void inc_max_seq(struct lruvec *lruvec, unsigned long max_seq)
 
 			WARN_ON_ONCE(delta != (int)delta);
 
-			update_lru_size(lruvec, lru, zone, delta);
-			update_lru_size(lruvec, lru + LRU_ACTIVE, zone, -delta);
+			/*
+			 * Node/zone counters only. lru_zone_size per memcg is
+			 * maintained by lru_gen_update_size(); this path must not
+			 * touch it or it underflows (lru_size -456 observed).
+			 */
+			__update_lru_size(lruvec, lru, zone, delta);
+			__update_lru_size(lruvec, lru + LRU_ACTIVE, zone, -delta);
 		}
 	}
 
@@ -3349,8 +3354,8 @@ static void inc_max_seq(struct lruvec *lruvec, unsigned long max_seq)
 
 			WARN_ON_ONCE(delta != (int)delta);
 
-			update_lru_size(lruvec, lru, zone, -delta);
-			update_lru_size(lruvec, lru + LRU_ACTIVE, zone, delta);
+			__update_lru_size(lruvec, lru, zone, -delta);
+			__update_lru_size(lruvec, lru + LRU_ACTIVE, zone, delta);
 		}
 	}
 
