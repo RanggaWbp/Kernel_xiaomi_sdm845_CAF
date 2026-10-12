@@ -5997,10 +5997,7 @@ static void __paginginit free_area_init_core(struct pglist_data *pgdat)
 	 */
 	node_lruvec(pgdat)->pgdat = pgdat;
 #endif
-	/* DEBUG BISECT A: skip per-node MGLRU state init */
-#if 0
 	lru_gen_init_state(NULL, node_lruvec(pgdat));
-#endif
 
 	for (j = 0; j < MAX_NR_ZONES; j++) {
 		struct zone *zone = pgdat->node_zones + j;
