@@ -4597,12 +4597,7 @@ void lru_gen_init_memcg(struct mem_cgroup *memcg)
 	for_each_node(nid) {
 		struct lruvec *lruvec = get_lruvec(nid, memcg);
 
-		/* DEBUG BISECT D: skip per-memcg MGLRU state init */
-#if 0
 		lru_gen_init_state(memcg, lruvec);
-#else
-		(void)lruvec;
-#endif
 	}
 }
 
