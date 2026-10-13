@@ -177,6 +177,11 @@ jobs:
           grep -q 'CONFIG_IOSCHED_ADIOS=y' out/.config || echo 'CONFIG_IOSCHED_ADIOS=y' >> out/.config
           grep -q 'CONFIG_LRU_GEN=y' out/.config || echo 'CONFIG_LRU_GEN=y' >> out/.config
           grep -q 'CONFIG_CRYPTO_LZ4=y' out/.config || echo 'CONFIG_CRYPTO_LZ4=y' >> out/.config
+          # BBRv3 must be BUILT IN (=y, not =m): the AK3 zip ships only
+          # Image.gz-dtb, so a .ko would never reach the device. TCP_CONG_BBR3
+          # lives inside `if TCP_CONG_ADVANCED`, so that must be on too.
+          grep -q 'CONFIG_TCP_CONG_ADVANCED=y' out/.config || echo 'CONFIG_TCP_CONG_ADVANCED=y' >> out/.config
+          grep -q 'CONFIG_TCP_CONG_BBR3=y' out/.config || echo 'CONFIG_TCP_CONG_BBR3=y' >> out/.config
 
       - name: Validate critical config symbols
         run: |
@@ -205,6 +210,8 @@ jobs:
           check_symbol "CONFIG_LZ4_COMPRESS" "y"
           check_symbol "CONFIG_LZ4_DECOMPRESS" "y"
           check_symbol "CONFIG_ZRAM" "y"
+          check_symbol "CONFIG_TCP_CONG_ADVANCED" "y"
+          check_symbol "CONFIG_TCP_CONG_BBR3" "y"
           if [ $failures -gt 0 ]; then
             echo "Config validation failed with $failures errors"
             exit 1
@@ -221,6 +228,14 @@ jobs:
           cp out/arch/arm64/boot/Image.gz out/Image.gz/
           # ntsync must be built in, not silently dropped by Kconfig deps
           test -f out/drivers/misc/ntsync.o || { echo 'ERROR: ntsync.o not built'; exit 1; }
+          # BBRv3 must have really compiled into the image, not just been set
+          # in .config: TCP_CONG_BBR3 hides behind TCP_CONG_ADVANCED, and a
+          # dependency miss leaves =y in .config with no object.
+          test -f out/net/ipv4/tcp_bbr3.o || { echo 'ERROR: tcp_bbr3.o not built'; exit 1; }
+          test -f out/net/ipv4/tcp_plb.o || { echo 'ERROR: tcp_plb.o not built'; exit 1; }
+          # The built-in tcp_bbr3.o must be inside net/built-in.o; a stray .ko
+          # would never be flashed (AK3 ships only Image.gz-dtb).
+          test ! -f out/net/ipv4/tcp_bbr3.ko || { echo 'ERROR: tcp_bbr3 built as a module, would never be flashed'; exit 1; }
           mkdir -p artifacts
           # %q: values get shell-quoted, because BMGR contains spaces and commas
           # and the file is sourced later (unquoted, `Official,` ran as a command).
@@ -260,7 +275,7 @@ jobs:
           # Update anykernel.sh to include kernel info
           sed -i "s/kernel.string=.*/kernel.string=BakaSU Kernel ${BRANCH} for ${{ matrix.device }}/" AnyKernel3/anykernel.sh
           sed -i "s|## Kernel xiaomi sdm845.*|## Kernel xiaomi sdm845 (CAF 4.9.337) by RanggaWbp|" AnyKernel3/anykernel.sh
-          sed -i "s|## Features:.*|## Features: BakaSU + SUSFS + NoMount + BBG + DroidSpaces + ReKernel + NTSYNC + BORE + ADIOS + MGLRU + LZ4|" AnyKernel3/anykernel.sh
+          sed -i "s|## Features:.*|## Features: BakaSU + SUSFS + NoMount + BBG + DroidSpaces + ReKernel + NTSYNC + BORE + ADIOS + MGLRU + LZ4 + BBRv3|" AnyKernel3/anykernel.sh
 
       - name: Package AnyKernel3 zip
         run: |
@@ -388,6 +403,16 @@ jobs:
             echo "- **ADIOS** I/O scheduler (adaptive deadline)"
             echo "- **MGLRU** Multi-Gen LRU page reclaim (MGLRU v5 backport)"
             echo "- **LZ4** zram compressor (lz4 default, synced to upstream lib/lz4)"
+            echo "- **BBRv3** TCP congestion control (\`bbr3\`, coexists with \`bbr\` v1) + **PLB** load balancing"
+            echo
+            echo "### Enabling BBRv3"
+            echo '```sh'
+            echo "# one-off"
+            echo "sysctl -w net.ipv4.tcp_congestion_control=bbr3"
+            echo "sysctl -w net.core.default_qdisc=fq"
+            echo "# persist: add to /etc/sysctl.conf"
+            echo '```'
+            echo "Verify: \`sysctl net.ipv4.tcp_available_congestion_control\` lists \`bbr3\`."
             echo
             echo "### Install"
             echo "1. Flash the zip for your codename via TWRP / OrangeFox."
