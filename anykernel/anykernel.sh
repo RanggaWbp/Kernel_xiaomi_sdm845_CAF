@@ -69,10 +69,12 @@ ui_print "  by RanggaWbp"
 # this always shows what ro.product.device actually reports, which is what you
 # want when a new device has to be added to device.name1-6 above.
 ui_print "  Device: $(getprop ro.product.device 2>/dev/null)"
-ui_print "  BakaSU + SUSFS + NoMount + BBG + DroidSpaces + ReKernel + NTSYNC + BORE + ADIOS + MGLRU + LZ4"
+ui_print "  BakaSU + SUSFS + NoMount + BBG + DroidSpaces + ReKernel + NTSYNC + BORE + ADIOS + MGLRU + LZ4 + BBRv3"
 ui_print "  NTSYNC: /dev/ntsync (Wine/emulator sync)"
 ui_print "  MGLRU: Multi-Gen LRU (sysfs /sys/kernel/mm/lru_gen/enabled)"
 ui_print "  LZ4: zram default compressor (comp_algorithm: lz4 lzo ...)"
+ui_print "  BBRv3: TCP congestion control, ACTIVE by default (bbr3 + bbr v1 both present)"
+ui_print "  BBRv3: check 'sysctl net.ipv4.tcp_congestion_control'; revert with cubic"
 ## end properties
 
 dump_boot

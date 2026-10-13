@@ -182,6 +182,10 @@ jobs:
           # lives inside `if TCP_CONG_ADVANCED`, so that must be on too.
           grep -q 'CONFIG_TCP_CONG_ADVANCED=y' out/.config || echo 'CONFIG_TCP_CONG_ADVANCED=y' >> out/.config
           grep -q 'CONFIG_TCP_CONG_BBR3=y' out/.config || echo 'CONFIG_TCP_CONG_BBR3=y' >> out/.config
+          # Make bbr3 the system-wide default CC (CONFIG_DEFAULT_TCP_CONG
+          # derives from the DEFAULT_* choice, so without this the image ships
+          # bbr3 compiled-in but still running cubic).
+          grep -q 'CONFIG_DEFAULT_BBR3=y' out/.config || echo 'CONFIG_DEFAULT_BBR3=y' >> out/.config
 
       - name: Validate critical config symbols
         run: |
@@ -212,6 +216,8 @@ jobs:
           check_symbol "CONFIG_ZRAM" "y"
           check_symbol "CONFIG_TCP_CONG_ADVANCED" "y"
           check_symbol "CONFIG_TCP_CONG_BBR3" "y"
+          check_symbol "CONFIG_DEFAULT_BBR3" "y"
+          check_symbol "CONFIG_DEFAULT_TCP_CONG" '"bbr3"'
           if [ $failures -gt 0 ]; then
             echo "Config validation failed with $failures errors"
             exit 1
@@ -403,16 +409,19 @@ jobs:
             echo "- **ADIOS** I/O scheduler (adaptive deadline)"
             echo "- **MGLRU** Multi-Gen LRU page reclaim (MGLRU v5 backport)"
             echo "- **LZ4** zram compressor (lz4 default, synced to upstream lib/lz4)"
-            echo "- **BBRv3** TCP congestion control (\`bbr3\`, coexists with \`bbr\` v1) + **PLB** load balancing"
+            echo "- **BBRv3** TCP congestion control (\`bbr3\`, **active by default**, coexists with \`bbr\` v1) + **PLB** load balancing"
             echo
-            echo "### Enabling BBRv3"
+            echo "### BBRv3"
+            echo "\`bbr3\` is the default congestion control in this image (\`CONFIG_DEFAULT_TCP_CONG=\"bbr3\"\`), so it is live from boot for every new connection — no sysctl needed."
+            echo
             echo '```sh'
-            echo "# one-off"
-            echo "sysctl -w net.ipv4.tcp_congestion_control=bbr3"
-            echo "sysctl -w net.core.default_qdisc=fq"
-            echo "# persist: add to /etc/sysctl.conf"
+            echo "# verify"
+            echo "sysctl net.ipv4.tcp_congestion_control   # -> bbr3"
+            echo "sysctl net.ipv4.tcp_available_congestion_control"
+            echo "# revert to cubic at runtime (no reflash)"
+            echo "sysctl -w net.ipv4.tcp_congestion_control=cubic"
             echo '```'
-            echo "Verify: \`sysctl net.ipv4.tcp_available_congestion_control\` lists \`bbr3\`."
+            echo "BBRv3 paces internally, so no \`fq\` qdisc is required. \`bbr\` v1 and \`cubic\` remain selectable."
             echo
             echo "### Install"
             echo "1. Flash the zip for your codename via TWRP / OrangeFox."
