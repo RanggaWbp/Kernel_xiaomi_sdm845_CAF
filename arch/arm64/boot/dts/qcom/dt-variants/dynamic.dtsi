@@ -1,0 +1,26 @@
+/*
+ * DT fstab -- variant: Dynamic (dynamic partition / retrofit).
+ *
+ * This file is deliberately empty: no firmware/android/fstab node is added,
+ * and that is exactly what this variant needs.
+ *
+ * Since Android 12, Lineage/Lineage-based roms for SDM845 devices ship their
+ * own fstab in the boot ramdisk (rootdir/Android.mk -> TARGET_RAMDISK_OUT), and
+ * from Android 13 onwards that fstab uses dynamic partitions:
+ *
+ *   system      /system      ext4  ro,barrier=1,discard  wait,logical,first_stage_mount
+ *   system_ext  /system_ext  ext4  ro,barrier=1,discard  wait,logical,first_stage_mount
+ *   vendor      /vendor      ext4  ro,barrier=1,discard  wait,logical,first_stage_mount
+ *
+ * (system/system_ext/product/vendor/odm all live inside the "super" partition
+ * through dm-linear.) AnyKernel3 only replaces Image.gz-dtb and leaves the rom
+ * ramdisk untouched, so that rom fstab travels along and gets used.
+ *
+ * Adding an fstab node here would make fs_mgr's first-stage init use the DTB
+ * and IGNORE the rom fstab: static entries (no "logical" flag) make init try to
+ * mount system/system_ext directly, while both actually sit inside "super" ->
+ * bootloop.
+ *
+ * Because the rom fstab is the one in charge, this variant also boots on
+ * Android 12+ roms that are SE or NSE.
+ */

@@ -942,25 +942,20 @@
 
 
 
-&firmware {
-	android {
-		compatible = "android,firmware";
-		vbmeta {
-			compatible = "android,vbmeta";
-			parts = "vbmeta,boot,system,system_ext,vendor,dtbo,recovery";
-		};
+/*
+ * NOTE: do NOT re-add an &firmware { android { fstab { ... } } } override here.
+ * fs_mgr's first-stage init reads the fstab from THIS dtb first
+ * (/firmware/android/fstab, "android,fstab") and only falls back to the
+ * ROM's own fstab.<hw> in the boot ramdisk when the node is absent. A dtb
+ * fstab is baked into the kernel and therefore pins ONE partition layout:
+ *   - SE  rom: needs a system_ext entry (here it pointed at the "cust"
+ *     partition) -> an NSE or dynamic rom then hangs mounting a partition
+ *     that does not exist.
+ *   - dynamic rom: system/system_ext live inside "super" via dm-linear, so
+ *     the entry must not exist at all.
+ * With the node gone every rom mounts its own layout and one zip boots on
+ * NSE, SE and dynamic-partition roms. sdm845.dtsi and sdm845-xiaomi-common.dtsi
+ * were already cleaned up the same way; this file was the last leftover.
+ * scripts/check_device_dtb.py fails the build if a dtb fstab ever comes back.
+ */
 
-		fstab {
-			compatible = "android,fstab";
-			system {
-				status = "disabled";
-			};
-			system_ext {
-				status = "disabled";
-			};
-			vendor {
-				fsmgr_flags = "wait,avb";
-			};
-		};
-	};
-};

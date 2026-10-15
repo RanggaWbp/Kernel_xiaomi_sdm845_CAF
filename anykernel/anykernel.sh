@@ -64,6 +64,11 @@ PATCH_VBMETA_FLAG=auto;
 ## begin properties
 ui_print "  Kernel for Xiaomi SDM845 (CAF 4.9.337)"
 ui_print "  by RanggaWbp"
+# The only difference between the nse / se / dynamic zips is the fstab node in
+# the appended DTB, so print it here: a user who reports a bootloop can say
+# which variant was flashed without guessing from the filename.
+ui_print "  Variant: __VARIANT__ (nse = no /system_ext, se = /system_ext on cust, dynamic = super/logical)"
+
 # Print the codename here as well. do_devicecheck() above already reports a
 # match, but it only prints on success and prints nothing on the no-check path;
 # this always shows what ro.product.device actually reports, which is what you

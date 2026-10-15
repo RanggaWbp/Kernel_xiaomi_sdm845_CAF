@@ -252,23 +252,6 @@ jobs:
           } > artifacts/BKSU_VERSION.txt
           cat artifacts/BKSU_VERSION.txt
 
-      - name: Build DTBs
-        run: |
-          make -j$(nproc) ARCH=$KERNEL_ARCH CC="$PWD/tc/proton-clang/bin/clang" CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE="$PWD/tc/gcc-64/bin/aarch64-linux-android-" CROSS_COMPILE_ARM32="$PWD/tc/gcc-32/bin/arm-linux-androideabi-" O=out dtbs
-          # Copy all relevant DTBs to output directory
-          cp out/arch/arm64/boot/dts/qcom/${{ matrix.device }}*.dtb out/Image.gz-dtb/ 2>/dev/null || true
-          # Also copy SDM845 base DTB
-          cp out/arch/arm64/boot/dts/qcom/sdm845*.dtb out/Image.gz-dtb/ 2>/dev/null || true
-
-      - name: Pack kernel with DTB
-        run: |
-          # Concatenate Image.gz with DTB files
-          cat out/Image.gz/Image.gz out/Image.gz-dtb/*.dtb > out/Image.gz-dtb/Image.gz-dtb
-          # Verify the image was created
-          ls -la out/Image.gz-dtb/Image.gz-dtb
-          # Run DTB validation check
-          python3 scripts/check_device_dtb.py out/Image.gz-dtb/Image.gz-dtb ${{ matrix.device }}
-
       - name: Fetch AnyKernel3
         run: |
           if [ ! -d "AnyKernel3" ]; then
@@ -276,26 +259,48 @@ jobs:
           fi
           # Remove images folder - we want Image.gz-dtb at zip root
           rm -rf AnyKernel3/images
-          # Copy our custom anykernel.sh to AnyKernel3
-          cp anykernel/anykernel.sh AnyKernel3/
-          # Update anykernel.sh to include kernel info
-          sed -i "s/kernel.string=.*/kernel.string=BakaSU Kernel ${BRANCH} for ${{ matrix.device }}/" AnyKernel3/anykernel.sh
-          sed -i "s|## Kernel xiaomi sdm845.*|## Kernel xiaomi sdm845 (CAF 4.9.337) by RanggaWbp|" AnyKernel3/anykernel.sh
-          sed -i "s|## Features:.*|## Features: BakaSU + SUSFS + NoMount + BBG + DroidSpaces + ReKernel + NTSYNC + BORE + ADIOS + MGLRU + LZ4 + BBRv3|" AnyKernel3/anykernel.sh
 
-      - name: Package AnyKernel3 zip
+      - name: Build + pack 3 variants (nse / se / dynamic)
         run: |
           set -eu
-          ZIP_NAME="BakaSU-${{ matrix.device }}-v${RUN_ID}-$(date +%Y%m%d).zip"
-          echo "ZIP_NAME=$ZIP_NAME" >> "$GITHUB_ENV"
+          # The kernel Image was already built in the previous step and is NOT
+          # variant-specific: the only difference is the fstab node inside the
+          # DTB, so each variant just recompiles the dtbs and repacks the zip.
+          KMAKE="make -j$(nproc) ARCH=$KERNEL_ARCH CC=$PWD/tc/proton-clang/bin/clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=$PWD/tc/gcc-64/bin/aarch64-linux-android- CROSS_COMPILE_ARM32=$PWD/tc/gcc-32/bin/arm-linux-androideabi- O=out"
           mkdir -p artifacts
-          # Set up AnyKernel3 structure
-          cp out/Image.gz-dtb/Image.gz-dtb AnyKernel3/Image.gz-dtb
-          cp -r AnyKernel3/* out/img/
-          # Zip straight into artifacts/ by absolute path
-          ( cd out/img && zip -r9 "$GITHUB_WORKSPACE/artifacts/$ZIP_NAME" . )
-          echo "ZIP created: artifacts/$ZIP_NAME"
-          unzip -l "artifacts/$ZIP_NAME"
+          for VARIANT in nse se dynamic; do
+            echo "::group::${{ matrix.device }} / $VARIANT"
+            # The single variant switch: which fstab fragment
+            # sdm845-xiaomi-common.dtsi includes (shared by all six Xiaomi
+            # SDM845 devices).
+            printf '#include "dt-variants/%s.dtsi"\n' "$VARIANT" > arch/arm64/boot/dts/qcom/xiaomi-dt-variant.dtsi
+            # Drop the old dtbs: kbuild only rebuilds missing or changed
+            # targets, and each variant's DTB must really be recompiled from the
+            # fragment above -- not reused from the previous iteration.
+            rm -f out/arch/arm64/boot/dts/qcom/${{ matrix.device }}*.dtb out/arch/arm64/boot/dts/qcom/sdm845*.dtb
+            $KMAKE dtbs
+            rm -rf out/Image.gz-dtb out/img
+            mkdir -p out/Image.gz-dtb out/img
+            cp out/arch/arm64/boot/dts/qcom/${{ matrix.device }}*.dtb out/Image.gz-dtb/ 2>/dev/null || true
+            cp out/arch/arm64/boot/dts/qcom/sdm845*.dtb out/Image.gz-dtb/ 2>/dev/null || true
+            cat out/Image.gz/Image.gz out/Image.gz-dtb/*.dtb > out/Image.gz-dtb/Image.gz-dtb
+            ls -la out/Image.gz-dtb/Image.gz-dtb
+            # Fails if the DTB carries an fstab that does not match this variant.
+            python3 scripts/check_device_dtb.py out/Image.gz-dtb/Image.gz-dtb ${{ matrix.device }} "$VARIANT"
+            # The AnyKernel3 tree is left clean; every edit happens in out/img so
+            # the next variant cannot inherit the previous variant's sed edits.
+            cp -r AnyKernel3/* out/img/
+            cp anykernel/anykernel.sh out/img/anykernel.sh
+            sed -i "s/__VARIANT__/${VARIANT}/g" out/img/anykernel.sh
+            sed -i "s/kernel.string=.*/kernel.string=BakaSU Kernel ${BRANCH} for ${{ matrix.device }} (${VARIANT})/" out/img/anykernel.sh
+            sed -i "s|## Kernel xiaomi sdm845.*|## Kernel xiaomi sdm845 (CAF 4.9.337) by RanggaWbp|" out/img/anykernel.sh
+            sed -i "s|## Features:.*|## Features: BakaSU + SUSFS + NoMount + BBG + DroidSpaces + ReKernel + NTSYNC + BORE + ADIOS + MGLRU + LZ4 + BBRv3|" out/img/anykernel.sh
+            cp out/Image.gz-dtb/Image.gz-dtb out/img/Image.gz-dtb
+            ZIP_NAME="BakaSU-${{ matrix.device }}-${VARIANT}-v${RUN_ID}-$(date +%Y%m%d).zip"
+            ( cd out/img && zip -r9 "$GITHUB_WORKSPACE/artifacts/$ZIP_NAME" . )
+            unzip -l "artifacts/$ZIP_NAME" | tail -n 12
+            echo "::endgroup::"
+          done
           ls -la artifacts/
       - name: Collect build metadata
         run: |
@@ -342,12 +347,19 @@ jobs:
           pattern: bakasu-*
           merge-multiple: true
 
-      - name: Verify all 6 zips present
+      - name: Verify all 18 zips present
         run: |
           set -eu
+          # 6 devices x 3 variants (nse / se / dynamic).
           n=$(ls artifacts/BakaSU-*.zip 2>/dev/null | wc -l)
           ls -la artifacts/BakaSU-*.zip
-          [ "$n" -eq 6 ] || { echo "::error::expected 6 zips, found $n"; exit 1; }
+          [ "$n" -eq 18 ] || { echo "::error::expected 18 zips, found $n"; exit 1; }
+          for d in beryllium dipper equuleus perseus polaris ursa; do
+            for v in nse se dynamic; do
+              ls artifacts/BakaSU-$d-$v-*.zip >/dev/null 2>&1 \
+                || { echo "::error::missing zip for $d / $v"; exit 1; }
+            done
+          done
 
       - name: Determine tag
         id: tag
@@ -383,11 +395,14 @@ jobs:
             echo
             echo "Built from \`${{ github.ref_name }}\` @ \`${{ github.sha }}\` on $(date -u '+%Y-%m-%d %H:%M UTC')."
             echo
-            echo "| Codename | Device | Zip |"
-            echo "|---|---|---|"
+            echo "| Codename | Device | Variant | Zip |"
+            echo "|---|---|---|---|"
             while IFS='|' read -r d m; do
-              f=$(ls artifacts/BakaSU-$d-*.zip 2>/dev/null | head -n1)
-              echo "| \`$d\` | $m | \`$(basename "$f")\` |"
+              for v in nse se dynamic; do
+                f=$(ls artifacts/BakaSU-$d-$v-*.zip 2>/dev/null | head -n1)
+                [ -n "$f" ] || { echo "::error::zip $d/$v hilang"; exit 1; }
+                echo "| \`$d\` | $m | \`$v\` | \`$(basename "$f")\` |"
+              done
             done <<'DEV'
           beryllium|POCOPHONE F1
           dipper|Xiaomi Mi 8
@@ -423,12 +438,30 @@ jobs:
             echo '```'
             echo "BBRv3 paces internally, so no \`fq\` qdisc is required. \`bbr\` v1 and \`cubic\` remain selectable."
             echo
+            echo "### Choosing a variant (required)"
+            echo "The kernel image is identical across the three variants. The only difference is the fstab node inside the DTB: \`init\` uses the fstab from the DTB when that node is present, and falls back to the rom's own fstab when it is absent. The variant therefore decides where the kernel looks for /system, /system_ext and /vendor."
+            echo
+            echo "| Variant | Meaning | Use for |"
+            echo "|---|---|---|"
+            echo "| \`nse\` | Non-System-Ext | Android 10/11 roms with no separate /system_ext partition |"
+            echo "| \`se\` | System-Ext | Android 10/11 roms with /system_ext (taken from the \`cust\` partition) |"
+            echo "| \`dynamic\` | Dynamic partition | Android 12+ roms (super/logical), including 12+ roms that are SE or NSE |"
+            echo
+            echo "If unsure, check your rom:"
+            echo
+            echo '```sh'
+            echo "adb shell 'cat /vendor/etc/fstab.qcom | grep -E \"system|logical\"'"
+            echo '```'
+            echo "If \`/system\` shows up with \`first_stage_mount\`, the rom ships its own fstab (Android 12+) — use \`dynamic\`. If the \`/system\`/\`/vendor\` entries are only \`recoveryonly\` or missing entirely, the rom is Android 10/11: use \`se\` when it has /system_ext, \`nse\` when it does not."
+            echo
+            echo "> Wrong variant = boot failure: the kernel waits for a partition that does not exist, or mounts a static partition while the content actually lives inside \`super\`."
+            echo
             echo "### Install"
-            echo "1. Flash the zip for your codename via TWRP / OrangeFox."
+            echo "1. Flash the zip matching your codename + variant via TWRP / OrangeFox."
             echo "2. Wipe cache + dalvik-cache (recommended)."
             echo "3. Reboot."
             echo
-            echo "> Toolchain: ProtonClang (clang-13) + AOSP GCC 4.9 binutils. Android 10-15."
+            echo "> Toolchain: ProtonClang (clang-13) + AOSP GCC 4.9 binutils. Android 10-15 (10/11 via the \`nse\`/\`se\` variants, 12+ via \`dynamic\`)."
           } > RELEASE_NOTES.md
           cat RELEASE_NOTES.md
 

@@ -1,0 +1,45 @@
+/*
+ * DT fstab -- variant: NSE (Non-System-Ext).
+ *
+ * For Android 10/11 roms that have NO separate /system_ext partition
+ * (system_ext lives inside /system). Roms from that era do not ship their own
+ * fstab in the boot ramdisk (their /system and /vendor entries are marked
+ * "recoveryonly", so they are skipped on a normal boot), which means fs_mgr's
+ * first-stage init reads the fstab from this DTB instead of from the rom.
+ *
+ * That is why this fstab must NOT contain a system_ext entry: on an NSE rom
+ * the partition does not exist and init would wait forever for a device that
+ * never appears (bootloop).
+ *
+ * The entries below follow the LineageOS 18.1 (Android 11) device tree, which
+ * is proven to boot on every Xiaomi SDM845 device.
+ *
+ * Any change here must be tested on an Android 10/11 rom. For Android 12+ use
+ * the "dynamic" variant -- those roms carry their own fstab.
+ */
+
+&firmware {
+	android {
+		fstab {
+			compatible = "android,fstab";
+
+			system {
+				compatible = "android,system";
+				dev = "/dev/block/platform/soc/1d84000.ufshc/by-name/system";
+				type = "ext4";
+				mnt_flags = "ro,barrier=1,discard";
+				fsmgr_flags = "wait";
+				status = "ok";
+			};
+
+			vendor {
+				compatible = "android,vendor";
+				dev = "/dev/block/platform/soc/1d84000.ufshc/by-name/vendor";
+				type = "ext4";
+				mnt_flags = "ro,barrier=1,discard";
+				fsmgr_flags = "wait";
+				status = "ok";
+			};
+		};
+	};
+};

@@ -47,3 +47,11 @@
 &blue_led {
 	status = "disabled";
 };
+
+/*
+ * fstab variant (nse / se / dynamic). CI overwrites the contents of the file
+ * included below before "make dtbs"; per-variant details live in dt-variants/.
+ * Every Xiaomi SDM845 device goes through this file, so this is the only hook
+ * needed.
+ */
+#include "xiaomi-dt-variant.dtsi"
