@@ -1,5 +1,5 @@
 /*
- * DT fstab -- variant: Dynamic (dynamic partition / retrofit).
+ * DT fstab -- variant: DYNAMIC (dynamic partition / retrofit).
  *
  * This file is deliberately empty: no firmware/android/fstab node is added,
  * and that is exactly what this variant needs.

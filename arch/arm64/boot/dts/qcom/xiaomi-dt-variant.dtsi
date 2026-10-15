@@ -1,10 +1,10 @@
 /*
- * fstab variant selected at build time (nse / se / dynamic).
+ * fstab variant selected at build time (NSE / SE / DYNAMIC).
  *
  * CI overwrites the contents of this file before running "make dtbs", see the
- * "Build + pack 3 variants (nse / se / dynamic)" step in
+ * "Build + pack 3 variants (NSE / SE / DYNAMIC)" step in
  * .github/workflows/build.yml. The value committed here is the default for
- * local builds, and it is intentionally the "dynamic" variant because that is
+ * local builds, and it is intentionally the "DYNAMIC" variant because that is
  * the safe one for Android 12+ roms (they carry their own fstab).
  *
  * Do not turn this file into an fstab block itself: pick one of the files in

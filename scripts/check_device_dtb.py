@@ -15,9 +15,9 @@ Two things are checked, both of which have silently broken boot before:
    fstab.<hw> from the ramdisk when that node is absent. So the node pins the
    partition layout:
 
-     nse      fstab present, no system_ext entry (rom has no /system_ext)
-     se       fstab present, system_ext entry present (/by-name/cust)
-     dynamic  no fstab node at all (rom's own fstab declares super/logical)
+     NSE      fstab present, no system_ext entry (rom has no /system_ext)
+     SE       fstab present, system_ext entry present (/by-name/cust)
+     DYNAMIC  no fstab node at all (rom's own fstab declares super/logical)
 
    Wrong node for the rom = the kernel mounts a partition that does not exist
    (or mounts a static one where super is required) = bootloop.
@@ -61,7 +61,8 @@ def main():
         print((__doc__ or "").strip(), file=sys.stderr)
         return 2
     image, device = sys.argv[1], sys.argv[2]
-    variant = sys.argv[3] if len(sys.argv) > 3 else "dynamic"
+    # Accept the uppercase labels used in zip names and the installer UI.
+    variant = (sys.argv[3] if len(sys.argv) > 3 else "dynamic").lower()
     if variant not in VARIANTS:
         print(f"::error::unknown variant '{variant}' "
               f"(expected one of {', '.join(sorted(VARIANTS))})", file=sys.stderr)
@@ -89,14 +90,14 @@ def main():
         for n, (got_fstab, got_system_ext) in bad:
             print(f"::error::{image}: {device} DTB #{n} has fstab={got_fstab} "
                   f"system_ext={got_system_ext}, expected fstab={want_fstab} "
-                  f"system_ext={want_system_ext} for variant '{variant}'.",
+                  f"system_ext={want_system_ext} for variant '{variant.upper()}'.",
                   file=sys.stderr)
         print(f"::error::variant mismatch: the dt fragment for this build was "
               f"not applied (dt-variants/{variant}.dtsi) or the dtbs are stale.",
               file=sys.stderr)
         return 1
 
-    print(f"{device} [{variant}]: {len(mine)} DTB(s) for this device, "
+    print(f"{device} [{variant.upper()}]: {len(mine)} DTB(s) for this device, "
           f"fstab={'yes' if want_fstab else 'no'}, "
           f"system_ext={'yes' if want_system_ext else 'no'} -> OK "
           f"({len(blobs)} DTBs in image)")

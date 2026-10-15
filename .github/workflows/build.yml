@@ -260,7 +260,7 @@ jobs:
           # Remove images folder - we want Image.gz-dtb at zip root
           rm -rf AnyKernel3/images
 
-      - name: Build + pack 3 variants (nse / se / dynamic)
+      - name: Build + pack 3 variants (NSE / SE / DYNAMIC)
         run: |
           set -eu
           # The kernel Image was already built in the previous step and is NOT
@@ -268,8 +268,11 @@ jobs:
           # DTB, so each variant just recompiles the dtbs and repacks the zip.
           KMAKE="make -j$(nproc) ARCH=$KERNEL_ARCH CC=$PWD/tc/proton-clang/bin/clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=$PWD/tc/gcc-64/bin/aarch64-linux-android- CROSS_COMPILE_ARM32=$PWD/tc/gcc-32/bin/arm-linux-androideabi- O=out"
           mkdir -p artifacts
+          # The loop value stays lowercase because it is the dt-variants/<name>.dtsi
+          # path; VARIANT_UC is the label users see (zip name, installer UI).
           for VARIANT in nse se dynamic; do
-            echo "::group::${{ matrix.device }} / $VARIANT"
+            VARIANT_UC=$(echo "$VARIANT" | tr '[:lower:]' '[:upper:]')
+            echo "::group::${{ matrix.device }} / $VARIANT_UC"
             # The single variant switch: which fstab fragment
             # sdm845-xiaomi-common.dtsi includes (shared by all six Xiaomi
             # SDM845 devices).
@@ -291,12 +294,12 @@ jobs:
             # the next variant cannot inherit the previous variant's sed edits.
             cp -r AnyKernel3/* out/img/
             cp anykernel/anykernel.sh out/img/anykernel.sh
-            sed -i "s/__VARIANT__/${VARIANT}/g" out/img/anykernel.sh
-            sed -i "s/kernel.string=.*/kernel.string=BakaSU Kernel ${BRANCH} for ${{ matrix.device }} (${VARIANT})/" out/img/anykernel.sh
+            sed -i "s/__VARIANT__/${VARIANT_UC}/g" out/img/anykernel.sh
+            sed -i "s/kernel.string=.*/kernel.string=BakaSU Kernel ${BRANCH} for ${{ matrix.device }} (${VARIANT_UC})/" out/img/anykernel.sh
             sed -i "s|## Kernel xiaomi sdm845.*|## Kernel xiaomi sdm845 (CAF 4.9.337) by RanggaWbp|" out/img/anykernel.sh
             sed -i "s|## Features:.*|## Features: BakaSU + SUSFS + NoMount + BBG + DroidSpaces + ReKernel + NTSYNC + BORE + ADIOS + MGLRU + LZ4 + BBRv3|" out/img/anykernel.sh
             cp out/Image.gz-dtb/Image.gz-dtb out/img/Image.gz-dtb
-            ZIP_NAME="BakaSU-${{ matrix.device }}-${VARIANT}-v${RUN_ID}-$(date +%Y%m%d).zip"
+            ZIP_NAME="BakaSU-${{ matrix.device }}-${VARIANT_UC}-v${RUN_ID}-$(date +%Y%m%d).zip"
             ( cd out/img && zip -r9 "$GITHUB_WORKSPACE/artifacts/$ZIP_NAME" . )
             unzip -l "artifacts/$ZIP_NAME" | tail -n 12
             echo "::endgroup::"
@@ -335,7 +338,7 @@ jobs:
           if-no-files-found: error
 
   release:
-    name: Publish release (all 6 zips)
+    name: Publish release (all 18 zips)
     needs: build
     if: ${{ needs.build.result == 'success' }}
     runs-on: ubuntu-22.04
@@ -350,12 +353,12 @@ jobs:
       - name: Verify all 18 zips present
         run: |
           set -eu
-          # 6 devices x 3 variants (nse / se / dynamic).
+          # 6 devices x 3 variants (NSE / SE / DYNAMIC).
           n=$(ls artifacts/BakaSU-*.zip 2>/dev/null | wc -l)
           ls -la artifacts/BakaSU-*.zip
           [ "$n" -eq 18 ] || { echo "::error::expected 18 zips, found $n"; exit 1; }
           for d in beryllium dipper equuleus perseus polaris ursa; do
-            for v in nse se dynamic; do
+            for v in NSE SE DYNAMIC; do
               ls artifacts/BakaSU-$d-$v-*.zip >/dev/null 2>&1 \
                 || { echo "::error::missing zip for $d / $v"; exit 1; }
             done
@@ -398,7 +401,7 @@ jobs:
             echo "| Codename | Device | Variant | Zip |"
             echo "|---|---|---|---|"
             while IFS='|' read -r d m; do
-              for v in nse se dynamic; do
+              for v in NSE SE DYNAMIC; do
                 f=$(ls artifacts/BakaSU-$d-$v-*.zip 2>/dev/null | head -n1)
                 [ -n "$f" ] || { echo "::error::zip $d/$v hilang"; exit 1; }
                 echo "| \`$d\` | $m | \`$v\` | \`$(basename "$f")\` |"
@@ -443,16 +446,16 @@ jobs:
             echo
             echo "| Variant | Meaning | Use for |"
             echo "|---|---|---|"
-            echo "| \`nse\` | Non-System-Ext | Android 10/11 roms with no separate /system_ext partition |"
-            echo "| \`se\` | System-Ext | Android 10/11 roms with /system_ext (taken from the \`cust\` partition) |"
-            echo "| \`dynamic\` | Dynamic partition | Android 12+ roms (super/logical), including 12+ roms that are SE or NSE |"
+            echo "| \`NSE\` | Non-System-Ext | Android 10/11 roms with no separate /system_ext partition |"
+            echo "| \`SE\` | System-Ext | Android 10/11 roms with /system_ext (taken from the \`cust\` partition) |"
+            echo "| \`DYNAMIC\` | Dynamic partition | Android 12+ roms (super/logical), including 12+ roms that are SE or NSE |"
             echo
             echo "If unsure, check your rom:"
             echo
             echo '```sh'
             echo "adb shell 'cat /vendor/etc/fstab.qcom | grep -E \"system|logical\"'"
             echo '```'
-            echo "If \`/system\` shows up with \`first_stage_mount\`, the rom ships its own fstab (Android 12+) — use \`dynamic\`. If the \`/system\`/\`/vendor\` entries are only \`recoveryonly\` or missing entirely, the rom is Android 10/11: use \`se\` when it has /system_ext, \`nse\` when it does not."
+            echo "If \`/system\` shows up with \`first_stage_mount\`, the rom ships its own fstab (Android 12+) — use \`DYNAMIC\`. If the \`/system\`/\`/vendor\` entries are only \`recoveryonly\` or missing entirely, the rom is Android 10/11: use \`SE\` when it has /system_ext, \`NSE\` when it does not."
             echo
             echo "> Wrong variant = boot failure: the kernel waits for a partition that does not exist, or mounts a static partition while the content actually lives inside \`super\`."
             echo
@@ -461,7 +464,7 @@ jobs:
             echo "2. Wipe cache + dalvik-cache (recommended)."
             echo "3. Reboot."
             echo
-            echo "> Toolchain: ProtonClang (clang-13) + AOSP GCC 4.9 binutils. Android 10-15 (10/11 via the \`nse\`/\`se\` variants, 12+ via \`dynamic\`)."
+            echo "> Toolchain: ProtonClang (clang-13) + AOSP GCC 4.9 binutils. Android 10-15 (10/11 via the \`NSE\`/\`SE\` variants, 12+ via \`DYNAMIC\`)."
           } > RELEASE_NOTES.md
           cat RELEASE_NOTES.md
 

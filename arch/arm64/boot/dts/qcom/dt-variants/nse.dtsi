@@ -15,7 +15,7 @@
  * is proven to boot on every Xiaomi SDM845 device.
  *
  * Any change here must be tested on an Android 10/11 rom. For Android 12+ use
- * the "dynamic" variant -- those roms carry their own fstab.
+ * the "DYNAMIC" variant -- those roms carry their own fstab.
  */
 
 &firmware {

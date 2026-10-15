@@ -11,7 +11,7 @@
  *
  * If your SE rom uses a real system_ext partition (from a repartition), this
  * entry points at the wrong device and boot fails. Roms like that are almost
- * always dynamic-partition builds already and should use the "dynamic" variant.
+ * always dynamic-partition builds already and should use the "DYNAMIC" variant.
  *
  * vbmeta.parts is extended with system_ext so the bootloader's partition list
  * matches the SE layout.
