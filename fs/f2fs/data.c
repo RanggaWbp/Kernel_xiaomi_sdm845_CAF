@@ -130,7 +130,7 @@ static void f2fs_finish_read_bio(struct bio *bio, bool in_task)
 		struct page *page = bv->bv_page;
 
 		if (f2fs_is_compressed_page(page)) {
-			if (bio->bi_status)
+			if (bio->bi_error)
 				f2fs_end_read_compressed_page(page, true, 0,
 							in_task);
 			f2fs_put_page_dic(page, in_task);
@@ -138,7 +138,7 @@ static void f2fs_finish_read_bio(struct bio *bio, bool in_task)
 		}
 
 		/* PG_error was set if decryption or verity failed. */
-		if (bio->bi_status || PageError(page)) {
+		if (bio->bi_error || PageError(page)) {
 			ClearPageUptodate(page);
 			/* will re-read again later */
 			ClearPageError(page);
@@ -279,10 +279,10 @@ static void f2fs_read_end_io(struct bio *bio)
 
 	if (time_to_inject(sbi, FAULT_READ_IO)) {
 		f2fs_show_injection_info(sbi, FAULT_READ_IO);
-		bio->bi_status = BLK_STS_IOERR;
+		bio->bi_error = -EIO;
 	}
 
-	if (bio->bi_status) {
+	if (bio->bi_error) {
 		f2fs_finish_read_bio(bio, intask);
 		return;
 	}
@@ -326,7 +326,7 @@ static void f2fs_write_end_io(struct bio *bio)
 
 	if (time_to_inject(sbi, FAULT_WRITE_IO)) {
 		f2fs_show_injection_info(sbi, FAULT_WRITE_IO);
-		bio->bi_status = BLK_STS_IOERR;
+		bio->bi_error = -EIO;
 	}
 
 	bio_for_each_segment_all(bvec, bio, iter_all) {
@@ -338,7 +338,7 @@ static void f2fs_write_end_io(struct bio *bio)
 			unlock_page(page);
 			mempool_free(page, sbi->write_io_dummy);
 
-			if (unlikely(bio->bi_status))
+			if (unlikely(bio->bi_error))
 				f2fs_stop_checkpoint(sbi, true,
 						STOP_CP_REASON_WRITE_FAIL);
 			continue;
@@ -353,7 +353,7 @@ static void f2fs_write_end_io(struct bio *bio)
 		}
 #endif
 
-		if (unlikely(bio->bi_status)) {
+		if (unlikely(bio->bi_error)) {
 			mapping_set_error(page->mapping, -EIO);
 			if (type == F2FS_WB_CP_DATA)
 				f2fs_stop_checkpoint(sbi, true,
@@ -461,7 +461,7 @@ static struct bio *__bio_alloc(struct f2fs_io_info *fio, int npages)
 
 	bdev = f2fs_target_device(sbi, fio->new_blkaddr, &sector);
 	bio = bio_alloc_bioset(GFP_NOIO, npages, f2fs_bioset);
-	bio_set_dev(bio, bdev);
+	bio->bi_bdev = bdev;
 	bio_set_op_attrs(bio, fio->op, fio->op_flags | f2fs_io_flags(fio));
 	bio->bi_iter.bi_sector = sector;
 	if (is_read_io(fio->op)) {
@@ -1095,7 +1095,7 @@ static struct bio *f2fs_grab_read_bio(struct inode *inode, block_t blkaddr,
 	bio = bio_alloc_bioset(for_write ? GFP_NOIO : GFP_KERNEL,
 			       min_t(int, nr_pages, BIO_MAX_PAGES),
 			       f2fs_bioset);
-	bio_set_dev(bio, bdev);
+	bio->bi_bdev = bdev;
 	bio_set_op_attrs(bio, REQ_OP_READ, op_flag);
 	if (!bio)
 		return ERR_PTR(-ENOMEM);
@@ -3925,7 +3925,7 @@ static void f2fs_dio_submit_bio(struct bio *bio, struct inode *inode,
 	submit_bio(bio);
 	return;
 out:
-	bio->bi_status = BLK_STS_IOERR;
+	bio->bi_error = -EIO;
 	bio_endio(bio);
 }
 
@@ -4452,10 +4452,10 @@ void f2fs_clear_radix_tree_dirty_tag(struct page *page)
 	struct address_space *mapping = page_mapping(page);
 	unsigned long flags;
 
-	xa_lock_irqsave(&mapping->i_pages, flags);
+	spin_lock_irqsave(&mapping->tree_lock, flags);
 	radix_tree_tag_clear(&mapping->i_pages, page_index(page),
 						PAGECACHE_TAG_DIRTY);
-	xa_unlock_irqrestore(&mapping->i_pages, flags);
+	spin_unlock_irqrestore(&mapping->tree_lock, flags);
 }
 
 int __init f2fs_init_post_read_processing(void)

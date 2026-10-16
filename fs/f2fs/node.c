@@ -2076,8 +2076,10 @@ int f2fs_wait_on_node_pages_writeback(struct f2fs_sb_info *sbi,
 		spin_unlock_irqrestore(&sbi->fsync_node_lock, flags);
 
 		f2fs_wait_on_page_writeback(page, NODE, true, false);
-		if (TestClearPageError(page))
+		if (PageError(page)) {
+			ClearPageError(page);
 			ret = -EIO;
+		}
 
 		put_page(page);
 

@@ -1007,7 +1007,7 @@ static void f2fs_submit_discard_endio(struct bio *bio)
 
 	spin_lock_irqsave(&dc->lock, flags);
 	if (!dc->error)
-		dc->error = blk_status_to_errno(bio->bi_status);
+		dc->error = bio->bi_error;
 	dc->bio_ref--;
 	if (!dc->bio_ref && dc->state == D_SUBMIT) {
 		dc->state = D_DONE;
@@ -3492,7 +3492,7 @@ drop_bio:
 	if (fio->bio && *(fio->bio)) {
 		struct bio *bio = *(fio->bio);
 
-		bio->bi_status = BLK_STS_IOERR;
+		bio->bi_error = -EIO;
 		bio_endio(bio);
 		*(fio->bio) = NULL;
 	}
@@ -4288,7 +4288,7 @@ static int build_sit_info(struct f2fs_sb_info *sbi)
 	sit_i->dirty_sentries = 0;
 	sit_i->sents_per_block = SIT_ENTRY_PER_BLOCK;
 	sit_i->elapsed_time = le64_to_cpu(sbi->ckpt->elapsed_time);
-	sit_i->mounted_time = ktime_get_boottime_seconds();
+	sit_i->mounted_time = f2fs_boottime_seconds();
 	init_rwsem(&sit_i->sentry_lock);
 	return 0;
 }

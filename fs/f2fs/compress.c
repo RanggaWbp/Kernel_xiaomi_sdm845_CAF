@@ -1373,7 +1373,7 @@ void f2fs_compress_write_end_io(struct bio *bio, struct page *page)
 			(struct compress_io_ctx *)page_private(page);
 	int i;
 
-	if (unlikely(bio->bi_status))
+	if (unlikely(bio->bi_error))
 		mapping_set_error(cic->inode->i_mapping, -EIO);
 
 	f2fs_compress_free_page(page);

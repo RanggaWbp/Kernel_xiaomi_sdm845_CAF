@@ -28,6 +28,23 @@
 #include <linux/fsverity.h>
 #include "fscrypt_compat.h"
 
+/*
+ * DEFINE_SHOW_ATTRIBUTE tidak ada di 4.9 (baru ada 4.20). Bentuk aslinya
+ * menghasilkan <name>_fops dari <name>_show(struct seq_file *, void *).
+ */
+#define DEFINE_SHOW_ATTRIBUTE(__name)					\
+static int __name ## _open(struct inode *inode, struct file *file)	\
+{									\
+	return single_open(file, __name ## _show, inode->i_private);	\
+}									\
+static const struct file_operations __name ## _fops = {			\
+	.owner		= THIS_MODULE,					\
+	.open		= __name ## _open,				\
+	.read		= seq_read,					\
+	.llseek		= seq_lseek,					\
+	.release	= single_release,				\
+}
+
 #ifdef CONFIG_F2FS_CHECK_FS
 #define f2fs_bug_on(sbi, condition)	BUG_ON(condition)
 #else
@@ -4702,6 +4719,15 @@ static inline void f2fs_handle_page_eio(struct f2fs_sb_info *sbi, pgoff_t ofs,
 		sbi->page_eio_ofs[type] = ofs;
 		sbi->page_eio_cnt[type] = 0;
 	}
+}
+
+/*
+ * 4.9 tidak punya f2fs_boottime_seconds() (baru ada 5.4). Nilai yang sama
+ * dari ktime_get_boottime() yang sudah ada di include/linux/timekeeping.h:204.
+ */
+static inline time64_t f2fs_boottime_seconds(void)
+{
+	return ktime_divns(ktime_get_boottime(), NSEC_PER_SEC);
 }
 
 static inline bool f2fs_is_readonly(struct f2fs_sb_info *sbi)
