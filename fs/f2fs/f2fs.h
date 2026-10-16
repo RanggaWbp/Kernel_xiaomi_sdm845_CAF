@@ -25,8 +25,31 @@
 #include <crypto/hash.h>
 
 #include <linux/fscrypt.h>
+#include <linux/refcount.h>
+#include <linux/parser.h>
 #include <linux/fsverity.h>
 #include "fscrypt_compat.h"
+
+/*
+ * sb_rdonly() baru ada setelah 4.9. Definisi ini sama dengan upstream.
+ */
+static inline bool sb_rdonly(const struct super_block *sb)
+{
+	return sb->s_flags & MS_RDONLY;
+}
+
+/*
+ * kvmalloc() baru ada di 4.12. Bentuk di bawah mengikuti upstream: coba kmalloc
+ * dulu, jatuh ke vmalloc hanya kalau gagal DAN ukurannya lebih dari satu page.
+ */
+static inline void *kvmalloc(size_t size, gfp_t flags)
+{
+	void *ret = kmalloc(size, flags | __GFP_NOWARN);
+
+	if (ret || size <= PAGE_SIZE)
+		return ret;
+	return __vmalloc(size, flags, PAGE_KERNEL);
+}
 
 /*
  * 4.9 tidak punya zoned block device: CONFIG_BLK_DEV_ZONED tidak ada di Kconfig
