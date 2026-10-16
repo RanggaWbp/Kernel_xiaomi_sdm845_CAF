@@ -28,6 +28,7 @@
 #include <linux/refcount.h>
 #include <linux/parser.h>
 #include <linux/overflow.h>
+#include <linux/writeback.h>
 #include <linux/fsverity.h>
 #include "fscrypt_compat.h"
 
