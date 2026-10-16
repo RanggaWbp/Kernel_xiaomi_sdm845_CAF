@@ -774,6 +774,12 @@ static bool io_type_is_mergeable(struct f2fs_bio_info *io,
 }
 
 
+static void del_bio_entry(struct bio_entry *be)
+{
+	list_del(&be->list);
+	kmem_cache_free(bio_entry_slab, be);
+}
+
 void f2fs_submit_merged_ipu_write(struct f2fs_sb_info *sbi,
 					struct bio **bio, struct page *page)
 {
