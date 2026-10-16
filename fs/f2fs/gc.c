@@ -17,7 +17,6 @@
 #include <linux/msm_drm_notify.h>
 #include <linux/power_supply.h>
 
-#include <linux/sched/signal.h>
 #include <linux/random.h>
 
 #include "f2fs.h"

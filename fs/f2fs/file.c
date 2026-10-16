@@ -21,7 +21,6 @@
 #include <linux/uuid.h>
 #include <linux/file.h>
 #include <linux/nls.h>
-#include <linux/sched/signal.h>
 
 #include "f2fs.h"
 #include "node.h"

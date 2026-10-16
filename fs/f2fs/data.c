@@ -18,7 +18,6 @@
 #include <linux/prefetch.h>
 #include <linux/uio.h>
 #include <linux/cleancache.h>
-#include <linux/sched/signal.h>
 
 #include "f2fs.h"
 #include "node.h"
@@ -30,20 +29,23 @@
 #define NUM_PREALLOC_POST_READ_CTXS	128
 
 static struct kmem_cache *bio_post_read_ctx_cache;
+static struct kmem_cache *bio_entry_slab;
 static mempool_t *bio_post_read_ctx_pool;
-static struct bio_set f2fs_bioset;
+static struct bio_set *f2fs_bioset;
 
 #define	F2FS_BIO_POOL_SIZE	NR_CURSEG_TYPE
 
 int __init f2fs_init_bioset(void)
 {
-	return bioset_init(&f2fs_bioset, F2FS_BIO_POOL_SIZE,
-					0, BIOSET_NEED_BVECS);
+	f2fs_bioset = bioset_create(F2FS_BIO_POOL_SIZE, 0);
+	if (!f2fs_bioset)
+		return -ENOMEM;
+	return 0;
 }
 
 void f2fs_destroy_bioset(void)
 {
-	bioset_exit(&f2fs_bioset);
+	bioset_free(f2fs_bioset);
 }
 
 static bool __is_cp_guaranteed(struct page *page)
@@ -458,7 +460,7 @@ static struct bio *__bio_alloc(struct f2fs_io_info *fio, int npages)
 	struct bio *bio;
 
 	bdev = f2fs_target_device(sbi, fio->new_blkaddr, &sector);
-	bio = bio_alloc_bioset(GFP_NOIO, npages, &f2fs_bioset);
+	bio = bio_alloc_bioset(GFP_NOIO, npages, f2fs_bioset);
 	bio_set_dev(bio, bdev);
 	bio_set_op_attrs(bio, fio->op, fio->op_flags | f2fs_io_flags(fio));
 	bio->bi_iter.bi_sector = sector;
@@ -727,8 +729,7 @@ int f2fs_submit_page_bio(struct f2fs_io_info *fio)
 	trace_f2fs_submit_page_bio(page, fio);
 
 	/* Allocate a new bio */
-	bio = __bio_alloc(fio->sbi, fio->new_blkaddr, fio->io_wbc,
-				1, is_read_io(fio->op), fio->type, fio->temp);
+	bio = __bio_alloc(fio, 1);
 
 	if (f2fs_may_encrypt_bio(inode, fio))
 		fscrypt_set_ice_dun(inode, bio, PG_DUN(inode, fio->page));
@@ -1052,9 +1053,7 @@ alloc_new:
 			fio->retry = true;
 			goto skip;
 		}
-		io->bio = __bio_alloc(sbi, fio->new_blkaddr, fio->io_wbc,
-						BIO_MAX_PAGES, false,
-						fio->type, fio->temp);
+		io->bio = __bio_alloc(fio, BIO_MAX_PAGES);
 		if (bio_encrypted)
 			fscrypt_set_ice_dun(inode, io->bio, dun);
 		fscrypt_set_ice_skip(io->bio, bi_crypt_skip);
@@ -1095,7 +1094,7 @@ static struct bio *f2fs_grab_read_bio(struct inode *inode, block_t blkaddr,
 
 	bio = bio_alloc_bioset(for_write ? GFP_NOIO : GFP_KERNEL,
 			       min_t(int, nr_pages, BIO_MAX_PAGES),
-			       &f2fs_bioset);
+			       f2fs_bioset);
 	bio_set_dev(bio, bdev);
 	bio_set_op_attrs(bio, REQ_OP_READ, op_flag);
 	if (!bio)
@@ -3975,8 +3974,6 @@ static ssize_t f2fs_direct_IO(struct kiocb *iocb, struct iov_iter *iter)
 						 current->pid, path,
 						 current->comm);
 	}
-	if (rw == WRITE && whint_mode == WHINT_MODE_OFF)
-		iocb->ki_hint = WRITE_LIFE_NOT_SET;
 
 	if (iocb->ki_flags & IOCB_NOWAIT) {
 		if (!f2fs_down_read_trylock(&fi->i_gc_rwsem[rw])) {
