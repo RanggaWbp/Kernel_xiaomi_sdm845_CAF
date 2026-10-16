@@ -44,6 +44,9 @@
 #ifndef SB_LAZYTIME
 #define SB_LAZYTIME		MS_LAZYTIME
 #endif
+#ifndef SB_POSIXACL
+#define SB_POSIXACL		MS_POSIXACL
+#endif
 
 /*
  * Dua flag inode di bawah baru ada di include/uapi/linux/fs.h setelah 4.9.
