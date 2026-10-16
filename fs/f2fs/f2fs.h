@@ -32,6 +32,20 @@
 #include "fscrypt_compat.h"
 
 /*
+ * 4.9 hanya punya MS_* (include/uapi/linux/fs.h); SB_* baru dipakai sejak
+ * rename di 4.20 dan nilainya identik.
+ */
+#ifndef SB_RDONLY
+#define SB_RDONLY		MS_RDONLY
+#endif
+#ifndef SB_ACTIVE
+#define SB_ACTIVE		MS_ACTIVE
+#endif
+#ifndef SB_LAZYTIME
+#define SB_LAZYTIME		MS_LAZYTIME
+#endif
+
+/*
  * Dua flag inode di bawah baru ada di include/uapi/linux/fs.h setelah 4.9.
  * Nilainya sama dengan upstream.
  */
