@@ -173,3 +173,71 @@ local-patches.md   inventaris 38 patch lokal + rencana re-apply
 trace-kconfig.md   trace, Kconfig, Makefile, defconfig
 RESOLVE-RULES.md   aturan resolusi konflik 3-way yang dipakai
 ```
+
+---
+
+## STATUS AKHIR (setelah paket A-I)
+
+Semua butir di bagian "Sisa kerja" di atas sudah dikerjakan. Bagian itu disimpan
+sebagai catatan riwayat; keadaan sebenarnya ada di bawah.
+
+### Yang dikerjakan setelah merge
+
+```
+f2fs.h      prototype f2fs_getattr dikembalikan ke 3-arg; GC_URGENT dibuang dari
+            enum gc_mode; stub zoned (bdev_is_zoned/bdev_zone_sectors/bdev_zoned_model
+            + BLK_ZONED_*) di bawah #ifndef CONFIG_BLK_DEV_ZONED; helper
+            f2fs_bio_first_bvec_all/f2fs_bio_first_page_all;
+            DEF_MAX_DISCARD_URGENT_ISSUE_TIME; DEFINE_SHOW_ATTRIBUTE;
+            f2fs_boottime_seconds(); f2fs_may_encrypt_bio()
+file.c      buang 6 ioctl keyring fscrypt + fsverity metadata + GETFSLABEL/SETFSLABEL;
+            helper f2fs_file_modified/f2fs_simple_fill_fsxattr/f2fs_ioc_fssetxattr_check;
+            signature getattr 3-arg, vm_ops->fault/page_mkwrite +vma;
+            field kstat result_mask/attributes/attributes_mask/btime dibuang;
+            file_write_and_wait_range -> filemap_write_and_wait_range
+verity.c    read_merkle_tree_page 2-arg; helper readahead mati dihapus
+data.c      __bio_alloc 2 call site 7-arg -> 2-arg; bioset_create/free;
+            bio->bi_error; bio->bi_bdev; spin_lock(&mapping->tree_lock);
+            migrate_page_states -> migrate_page_copy; bio_entry_slab;
+            ICE/PFK diverifikasi sudah 4-arg (fscrypt_mergeable_bio dkk)
+inode.c     dquot_initialize_needed -> dquot_initialize
+namei.c     generic_set_encrypted_ci_d_ops -> f2fs_set_encrypted_d_ops (fscrypt_d_ops)
+gc.c/gc.h   model GC diseragamkan ke 4.19 (f2fs_gc(sbi, &gc_control), gc_lock,
+            f2fs_down_write); rapid GC tetap hidup dipetakan ke GC_URGENT_HIGH;
+            DEF_GC_THREAD_NOGC_SLEEP_TIME dikembalikan ke 1800000
+segment.c/h model SIT diseragamkan ke 4.19 (bitmap kontigu) -> kebocoran peta
+            per-segmen hilang; sit_i->bitmap + invalid_segmap ditambahkan
+sysfs.c     proc_create_single_data -> proc_create_data + makro F2FS_PROC_FILE_DEF
+super.c     fscrypt_operations ke bentuk 4.9 (.dummy_context, buang 3 anggota 4.19);
+            fscrypt_drop_inode dihapus dari f2fs_drop_inode
+hash.c dll  include linux/unicode.h dan linux/sched/signal.h dihapus (tidak ada di 4.9)
+```
+
+### Fitur lokal terverifikasi masih ada
+
+```
+android_fs tracepoint   28 referensi di data.c, file.c, inline.c
+rapid_gc                f2fs_start/stop/init/destroy_rapid_gc, rapid_gc_fb_work,
+                        rapid_gc_set_wakelock, TRIGGER_RAPID_GC, msm_drm_notifier_callback
+cleancache              super.c:4452
+umount_end              super.c:1536 + .umount_end di f2fs_sops:3013
+ioprio GC kthread       gc.c:238 (+ checkpoint.c, sysfs.c)
+tuning                  DEF_RECLAIM_PREFREE_SEGMENTS 3, DEF_MAX_RECLAIM_PREFREE_SEGMENTS 1024,
+                        DEF_MIN_FSYNC_BLOCKS 20, DEF_GC_THREAD_URGENT_SLEEP_TIME 50,
+                        DEF_GC_THREAD_NOGC_SLEEP_TIME 1800000
+fake kernel version     fs/f2fs/Kconfig:159/170/174
+```
+
+### Yang masih TIDAK bisa dipastikan
+
+Tidak pernah dikompilasi. Pemeriksaan statis sudah bersih: 0 penanda konflik,
+kurung seimbang di semua file, dan tidak ada simbol eksternal yang dipakai tapi
+tidak terdefinisi (sisa temuan scanner semuanya false positive: fungsi yang
+di-generate makro PAGE_PRIVATE_*_FUNC, fungsi static di file yang sama, atau
+kode yang mati karena CONFIG_UNICODE / CONFIG_F2FS_FS_COMPRESSION /
+CONFIG_BLK_DEV_ZONED tidak ada di tree ini).
+
+Kelas error yang hanya muncul saat kompilasi dan perlu diwaspadai di CI:
+- `-Wunused-function` / `-Wunused-variable` pada sisa kode 4.9 yang jadi mati
+- ketidakcocokan tipe argumen di tempat yang tidak tercakup scanner simbol
+- `-Werror` pada `include/linux/f2fs_fs.h` yang berubah (cek pemakai di luar fs/f2fs)
