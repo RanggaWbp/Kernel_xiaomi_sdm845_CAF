@@ -32,19 +32,6 @@
 #include "fscrypt_compat.h"
 
 /*
- * array_size() baru ada di 4.13 (include/linux/overflow.h). Bentuk ini sama
- * dengan upstream; check_mul_overflow() sudah ada di overflow.h 4.9.
- */
-static inline __must_check size_t array_size(size_t a, size_t b)
-{
-	size_t bytes;
-
-	if (check_mul_overflow(a, b, &bytes))
-		return SIZE_MAX;
-	return bytes;
-}
-
-/*
  * Dua flag inode di bawah baru ada di include/uapi/linux/fs.h setelah 4.9.
  * Nilainya sama dengan upstream.
  */
