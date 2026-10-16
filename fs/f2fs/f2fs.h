@@ -32,6 +32,17 @@
 #include "fscrypt_compat.h"
 
 /*
+ * wbc_to_write_flags() baru ada di 4.10. Bentuk ini sama dengan versi 4.10;
+ * 4.9 tidak punya REQ_BACKGROUND sehingga cabang itu tidak diikutkan.
+ */
+static inline int wbc_to_write_flags(struct writeback_control *wbc)
+{
+	if (wbc->sync_mode == WB_SYNC_ALL)
+		return REQ_SYNC;
+	return 0;
+}
+
+/*
  * 4.9 hanya punya MS_* (include/uapi/linux/fs.h); SB_* baru dipakai sejak
  * rename di 4.20 dan nilainya identik.
  */

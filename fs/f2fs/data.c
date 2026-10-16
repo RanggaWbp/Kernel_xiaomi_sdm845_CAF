@@ -3325,7 +3325,7 @@ next:
 			if (need_readd)
 				goto readd;
 		}
-		release_pages(pages, nr_pages);
+		release_pages(pages, nr_pages, false);
 		cond_resched();
 	}
 #ifdef CONFIG_F2FS_FS_COMPRESSION
@@ -4193,10 +4193,7 @@ int f2fs_migrate_page(struct address_space *mapping,
 		put_page(page);
 	}
 
-	if (mode != MIGRATE_SYNC_NO_COPY)
-		migrate_page_copy(newpage, page);
-	else
-		migrate_page_copy(newpage, page);
+	migrate_page_copy(newpage, page);
 
 	return MIGRATEPAGE_SUCCESS;
 }
@@ -4452,7 +4449,7 @@ void f2fs_clear_radix_tree_dirty_tag(struct page *page)
 	unsigned long flags;
 
 	spin_lock_irqsave(&mapping->tree_lock, flags);
-	radix_tree_tag_clear(&mapping->i_pages, page_index(page),
+	radix_tree_tag_clear(&mapping->page_tree, page_index(page),
 						PAGECACHE_TAG_DIRTY);
 	spin_unlock_irqrestore(&mapping->tree_lock, flags);
 }
