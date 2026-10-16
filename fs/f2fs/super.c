@@ -2780,11 +2780,11 @@ int f2fs_quota_sync(struct super_block *sb, int type)
 		 *			      f2fs_down_read(quota_sem)
 		 */
 		f2fs_lock_op(sbi);
-		f2fs_f2fs_down_read(&sbi->quota_sem);
+		f2fs_down_read(&sbi->quota_sem);
 
 		ret = f2fs_quota_sync_file(sbi, cnt);
 
-		f2fs_f2fs_up_read(&sbi->quota_sem);
+		f2fs_up_read(&sbi->quota_sem);
 		f2fs_unlock_op(sbi);
 
 		if (!f2fs_sb_has_quota_ino(sbi))
@@ -2891,7 +2891,7 @@ static int f2fs_dquot_commit(struct dquot *dquot)
 	ret = dquot_commit(dquot);
 	if (ret < 0)
 		set_sbi_flag(sbi, SBI_QUOTA_NEED_REPAIR);
-	f2fs_f2fs_up_read(&sbi->quota_sem);
+	f2fs_up_read(&sbi->quota_sem);
 	return ret;
 }
 
@@ -2900,11 +2900,11 @@ static int f2fs_dquot_acquire(struct dquot *dquot)
 	struct f2fs_sb_info *sbi = F2FS_SB(dquot->dq_sb);
 	int ret;
 
-	f2fs_f2fs_down_read(&sbi->quota_sem);
+	f2fs_down_read(&sbi->quota_sem);
 	ret = dquot_acquire(dquot);
 	if (ret < 0)
 		set_sbi_flag(sbi, SBI_QUOTA_NEED_REPAIR);
-	f2fs_f2fs_up_read(&sbi->quota_sem);
+	f2fs_up_read(&sbi->quota_sem);
 	return ret;
 }
 
