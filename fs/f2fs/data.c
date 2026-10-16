@@ -765,15 +765,6 @@ static bool page_is_mergeable(struct f2fs_sb_info *sbi, struct bio *bio,
 	return __same_bdev(sbi, cur_blkaddr, bio);
 }
 
-static bool io_type_is_mergeable(struct f2fs_bio_info *io,
-						struct f2fs_io_info *fio)
-{
-	if (io->fio.op != fio->op)
-		return false;
-	return io->fio.op_flags == fio->op_flags;
-}
-
-
 static void del_bio_entry(struct bio_entry *be)
 {
 	list_del(&be->list);

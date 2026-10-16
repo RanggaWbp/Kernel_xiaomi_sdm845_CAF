@@ -1391,7 +1391,7 @@ void f2fs_ra_node_page(struct f2fs_sb_info *sbi, nid_t nid)
 		return;
 
 	rcu_read_lock();
-	apage = radix_tree_lookup(&NODE_MAPPING(sbi)->i_pages, nid);
+	apage = radix_tree_lookup(&NODE_MAPPING(sbi)->page_tree, nid);
 	rcu_read_unlock();
 	if (apage)
 		return;
