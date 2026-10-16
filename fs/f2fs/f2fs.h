@@ -27,8 +27,33 @@
 #include <linux/fscrypt.h>
 #include <linux/refcount.h>
 #include <linux/parser.h>
+#include <linux/overflow.h>
 #include <linux/fsverity.h>
 #include "fscrypt_compat.h"
+
+/*
+ * array_size() baru ada di 4.13 (include/linux/overflow.h). Bentuk ini sama
+ * dengan upstream; check_mul_overflow() sudah ada di overflow.h 4.9.
+ */
+static inline __must_check size_t array_size(size_t a, size_t b)
+{
+	size_t bytes;
+
+	if (check_mul_overflow(a, b, &bytes))
+		return SIZE_MAX;
+	return bytes;
+}
+
+/*
+ * Dua flag inode di bawah baru ada di include/uapi/linux/fs.h setelah 4.9.
+ * Nilainya sama dengan upstream.
+ */
+#ifndef FS_VERITY_FL
+#define FS_VERITY_FL			0x00100000 /* Verity protected inode */
+#endif
+#ifndef FS_CASEFOLD_FL
+#define FS_CASEFOLD_FL			0x40000000 /* Casefolded file */
+#endif
 
 /*
  * sb_rdonly() baru ada setelah 4.9. Definisi ini sama dengan upstream.
