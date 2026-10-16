@@ -22,8 +22,12 @@ env:
   CLANG_REPO: https://github.com/kdrag0n/proton-clang
   GCC_64_SOURCE: https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9
   GCC_64_BRANCH: android12L-release
+  GCC_64_MIRROR: https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9
+  GCC_64_MIRROR_BRANCH: lineage-19.1
   GCC_32_SOURCE: https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9
   GCC_32_BRANCH: android12L-release
+  GCC_32_MIRROR: https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9
+  GCC_32_MIRROR_BRANCH: lineage-19.1
   AK3_SOURCE: https://github.com/osm0sis/AnyKernel3.git
   KERNEL_ARCH: arm64
   # clang is the actual compiler; the AOSP GCC 4.9 prebuilt only supplies
@@ -102,13 +106,18 @@ jobs:
           if [ ! -d "tc/proton-clang" ]; then
             git clone --depth 1 "$CLANG_REPO" tc/proton-clang
           fi
-          # AOSP GCC 4.9 (64-bit)
+          # AOSP GCC 4.9 (64-bit); fallback ke mirror LineageOS bila
+          # android.googlesource.com mengembalikan 503
           if [ ! -d "tc/gcc-64" ]; then
-            git clone --depth 1 --branch "$GCC_64_BRANCH" "$GCC_64_SOURCE" tc/gcc-64
+            git clone --depth 1 --branch "$GCC_64_BRANCH" "$GCC_64_SOURCE" tc/gcc-64 \
+              || { rm -rf tc/gcc-64; \
+                   git clone --depth 1 --branch "$GCC_64_MIRROR_BRANCH" "$GCC_64_MIRROR" tc/gcc-64; }
           fi
-          # AOSP GCC 4.9 (32-bit)
+          # AOSP GCC 4.9 (32-bit); fallback idem
           if [ ! -d "tc/gcc-32" ]; then
-            git clone --depth 1 --branch "$GCC_32_BRANCH" "$GCC_32_SOURCE" tc/gcc-32
+            git clone --depth 1 --branch "$GCC_32_BRANCH" "$GCC_32_SOURCE" tc/gcc-32 \
+              || { rm -rf tc/gcc-32; \
+                   git clone --depth 1 --branch "$GCC_32_MIRROR_BRANCH" "$GCC_32_MIRROR" tc/gcc-32; }
           fi
           # Both gcc bin dirs must be on PATH. arch/arm64/Makefile derives
           # GCC_TOOLCHAIN{,_32}_DIR with `which $(CROSS_COMPILE_ARM32)ld`; if
