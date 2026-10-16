@@ -1926,6 +1926,9 @@ struct f2fs_sb_info {
 	/* Precomputed FS UUID checksum for seeding other checksums */
 	__u32 s_chksum_seed;
 
+	/* daftar sbi untuk rapid GC (fitur lokal; dipakai gc.c) */
+	struct list_head list;
+
 	struct workqueue_struct *post_read_wq;	/* post read workqueue */
 
 	unsigned char errors[MAX_F2FS_ERRORS];	/* error flags */
