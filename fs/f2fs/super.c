@@ -12,7 +12,6 @@
 #include <linux/buffer_head.h>
 #include <linux/backing-dev.h>
 #include <linux/kthread.h>
-#include <linux/parser.h>
 #include <linux/mount.h>
 #include <linux/seq_file.h>
 #include <linux/proc_fs.h>
