@@ -29,6 +29,35 @@
 #include "fscrypt_compat.h"
 
 /*
+ * 4.9 tidak punya zoned block device: CONFIG_BLK_DEV_ZONED tidak ada di Kconfig
+ * dan include/linux/blkdev.h tidak menyediakan bdev_is_zoned()/bdev_zone_sectors()/
+ * bdev_zoned_model(). Stub berikut sama dengan yang dipakai upstream saat
+ * CONFIG_BLK_DEV_ZONED=n, sehingga kode zoned f2fs tetap kompilasi dan tidak
+ * pernah aktif. Jalur ini hanya tercapai bila fitur BLKZONED ada di superblock
+ * on-disk, yang tidak terjadi pada device ini.
+ */
+#ifndef CONFIG_BLK_DEV_ZONED
+#define BLK_ZONED_NONE	0
+#define BLK_ZONED_HA	1
+#define BLK_ZONED_HM	2
+
+static inline bool bdev_is_zoned(struct block_device *bdev)
+{
+	return false;
+}
+
+static inline unsigned int bdev_zone_sectors(struct block_device *bdev)
+{
+	return 0;
+}
+
+static inline int bdev_zoned_model(struct block_device *bdev)
+{
+	return BLK_ZONED_NONE;
+}
+#endif /* !CONFIG_BLK_DEV_ZONED */
+
+/*
  * DEFINE_SHOW_ATTRIBUTE tidak ada di 4.9 (baru ada 4.20). Bentuk aslinya
  * menghasilkan <name>_fops dari <name>_show(struct seq_file *, void *).
  */
@@ -247,6 +276,7 @@ enum {
 #define DEF_MID_DISCARD_ISSUE_TIME	500	/* 500 ms, if device busy */
 #define DEF_MAX_DISCARD_ISSUE_TIME	60000	/* 60 s, if no candidates */
 #define DEF_DISCARD_URGENT_UTIL		80	/* do more discard over 80% */
+#define DEF_MAX_DISCARD_URGENT_ISSUE_TIME	10000	/* 10 s, if no candidates on high utilization */
 #define DEF_CP_INTERVAL			60	/* 60 secs */
 #define DEF_IDLE_INTERVAL		5	/* 5 secs */
 #define DEF_DISABLE_INTERVAL		5	/* 5 secs */
@@ -1342,6 +1372,11 @@ enum {
 	GC_URGENT_HIGH,
 	GC_URGENT_LOW,
 	GC_URGENT_MID,
+	/*
+	 * Local (non-upstream) mode used by the rapid GC thread to force
+	 * foreground GC on every iteration. It is a distinct enum value so it
+	 * does not overwrite the sysfs-selectable GC_URGENT_HIGH/MID/LOW.
+	 */
 	MAX_GC_MODE,
 };
 
@@ -3534,8 +3569,8 @@ void f2fs_truncate_data_blocks(struct dnode_of_data *dn);
 int f2fs_do_truncate_blocks(struct inode *inode, u64 from, bool lock);
 int f2fs_truncate_blocks(struct inode *inode, u64 from, bool lock);
 int f2fs_truncate(struct inode *inode);
-int f2fs_getattr(const struct path *path, struct kstat *stat,
-			u32 request_mask, unsigned int flags);
+int f2fs_getattr(struct vfsmount *mnt, struct dentry *dentry,
+			struct kstat *stat);
 int f2fs_setattr(struct dentry *dentry, struct iattr *attr);
 int f2fs_truncate_hole(struct inode *inode, pgoff_t pg_start, pgoff_t pg_end);
 void f2fs_truncate_data_blocks_range(struct dnode_of_data *dn, int count);
@@ -4297,6 +4332,21 @@ static inline bool f2fs_encrypted_file(struct inode *inode)
  * security/pfe/pfk_f2fs.c dan fs/direct-io.c tetap mendapat bio terenkripsi
  * perangkat keras.
  */
+/*
+ * bio_first_page_all()/bio_first_bvec_all() belum ada di 4.9. Salinan inline
+ * dari 4.13; satu pemakai di data.c.
+ */
+static inline struct bio_vec *f2fs_bio_first_bvec_all(struct bio *bio)
+{
+	WARN_ON_ONCE(bio_flagged(bio, BIO_CLONED));
+	return bio->bi_io_vec;
+}
+
+static inline struct page *f2fs_bio_first_page_all(struct bio *bio)
+{
+	return f2fs_bio_first_bvec_all(bio)->bv_page;
+}
+
 static inline bool f2fs_may_encrypt_bio(struct inode *inode,
 				struct f2fs_io_info *fio)
 {
@@ -4528,8 +4578,13 @@ static inline bool f2fs_hw_should_discard(struct f2fs_sb_info *sbi)
 
 static inline bool f2fs_bdev_support_discard(struct block_device *bdev)
 {
+#ifdef CONFIG_BLK_DEV_ZONED
 	return blk_queue_discard(bdev_get_queue(bdev)) ||
 	       bdev_is_zoned(bdev);
+#else
+	/* 4.9 tree has no zoned block device support (bdev_is_zoned absent) */
+	return blk_queue_discard(bdev_get_queue(bdev));
+#endif
 }
 
 static inline bool f2fs_hw_support_discard(struct f2fs_sb_info *sbi)

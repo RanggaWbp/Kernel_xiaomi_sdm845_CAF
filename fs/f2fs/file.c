@@ -33,13 +33,13 @@
 #include <trace/events/android_fs.h>
 #include <uapi/linux/f2fs.h>
 
-static vm_fault_t f2fs_filemap_fault(struct vm_fault *vmf)
+static int f2fs_filemap_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 {
-	struct inode *inode = file_inode(vmf->vma->vm_file);
-	vm_fault_t ret;
+	struct inode *inode = file_inode(vma->vm_file);
+	int ret;
 
 	f2fs_down_read(&F2FS_I(inode)->i_mmap_sem);
-	ret = filemap_fault(vmf);
+	ret = filemap_fault(vma, vmf);
 	f2fs_up_read(&F2FS_I(inode)->i_mmap_sem);
 
 	if (!ret)
@@ -51,10 +51,11 @@ static vm_fault_t f2fs_filemap_fault(struct vm_fault *vmf)
 	return ret;
 }
 
-static vm_fault_t f2fs_vm_page_mkwrite(struct vm_fault *vmf)
+static int f2fs_vm_page_mkwrite(struct vm_area_struct *vma,
+				struct vm_fault *vmf)
 {
 	struct page *page = vmf->page;
-	struct inode *inode = file_inode(vmf->vma->vm_file);
+	struct inode *inode = file_inode(vma->vm_file);
 	struct f2fs_sb_info *sbi = F2FS_I_SB(inode);
 	struct dnode_of_data dn;
 	bool need_alloc = true;
@@ -100,7 +101,7 @@ static vm_fault_t f2fs_vm_page_mkwrite(struct vm_fault *vmf)
 
 	f2fs_bug_on(sbi, f2fs_has_inline_data(inode));
 
-	file_update_time(vmf->vma->vm_file);
+	file_update_time(vma->vm_file);
 	f2fs_down_read(&F2FS_I(inode)->i_mmap_sem);
 	lock_page(page);
 	if (unlikely(page->mapping != inode->i_mapping ||
@@ -171,6 +172,29 @@ static const struct vm_operations_struct f2fs_file_vm_ops = {
 	.map_pages	= filemap_map_pages,
 	.page_mkwrite	= f2fs_vm_page_mkwrite,
 };
+
+/*
+ * 4.9 has no file_modified() (added in 5.10).  Same semantics as the
+ * upstream helper: drop suid/sgid/capabilities first, then update times,
+ * but skip the timestamp update when the file was opened FMODE_NOCMTIME.
+ */
+static inline int f2fs_file_modified(struct file *file)
+{
+	int err;
+
+	/*
+	 * Clear the security bits if the process is not being run by root.
+	 * This keeps people from modifying setuid and setgid binaries.
+	 */
+	err = file_remove_privs(file);
+	if (err)
+		return err;
+
+	if (unlikely(file->f_mode & FMODE_NOCMTIME))
+		return 0;
+
+	return file_update_time(file);
+}
 
 static int get_parent_ino(struct inode *inode, nid_t *pino)
 {
@@ -281,7 +305,7 @@ static int f2fs_do_sync_file(struct file *file, loff_t start, loff_t end,
 	/* if fdatasync is triggered, let's do in-place-update */
 	if (datasync || get_dirty_pages(inode) <= SM_I(sbi)->min_fsync_blocks)
 		set_inode_flag(inode, FI_NEED_IPU);
-	ret = file_write_and_wait_range(file, start, end);
+	ret = filemap_write_and_wait_range(file->f_mapping, start, end);
 	clear_inode_flag(inode, FI_NEED_IPU);
 
 	if (ret || is_sbi_flag_set(sbi, SBI_CP_DISABLED)) {
@@ -838,42 +862,10 @@ int f2fs_truncate(struct inode *inode)
 	return 0;
 }
 
-int f2fs_getattr(const struct path *path, struct kstat *stat,
-		 u32 request_mask, unsigned int query_flags)
+int f2fs_getattr(struct vfsmount *mnt, struct dentry *dentry,
+		 struct kstat *stat)
 {
-	struct inode *inode = d_inode(path->dentry);
-	struct f2fs_inode_info *fi = F2FS_I(inode);
-	struct f2fs_inode *ri = NULL;
-	unsigned int flags;
-
-	if (f2fs_has_extra_attr(inode) &&
-			f2fs_sb_has_inode_crtime(F2FS_I_SB(inode)) &&
-			F2FS_FITS_IN_INODE(ri, fi->i_extra_isize, i_crtime)) {
-		stat->result_mask |= STATX_BTIME;
-		stat->btime.tv_sec = fi->i_crtime.tv_sec;
-		stat->btime.tv_nsec = fi->i_crtime.tv_nsec;
-	}
-
-	flags = fi->i_flags;
-	if (flags & F2FS_COMPR_FL)
-		stat->attributes |= STATX_ATTR_COMPRESSED;
-	if (flags & F2FS_APPEND_FL)
-		stat->attributes |= STATX_ATTR_APPEND;
-	if (IS_ENCRYPTED(inode))
-		stat->attributes |= STATX_ATTR_ENCRYPTED;
-	if (flags & F2FS_IMMUTABLE_FL)
-		stat->attributes |= STATX_ATTR_IMMUTABLE;
-	if (flags & F2FS_NODUMP_FL)
-		stat->attributes |= STATX_ATTR_NODUMP;
-	if (IS_VERITY(inode))
-		stat->attributes |= STATX_ATTR_VERITY;
-
-	stat->attributes_mask |= (STATX_ATTR_COMPRESSED |
-				  STATX_ATTR_APPEND |
-				  STATX_ATTR_ENCRYPTED |
-				  STATX_ATTR_IMMUTABLE |
-				  STATX_ATTR_NODUMP |
-				  STATX_ATTR_VERITY);
+	struct inode *inode = d_inode(dentry);
 
 	generic_fillattr(inode, stat);
 
@@ -1810,7 +1802,7 @@ static long f2fs_fallocate(struct file *file, int mode,
 
 	inode_lock(inode);
 
-	ret = file_modified(file);
+	ret = f2fs_file_modified(file);
 	if (ret)
 		goto out;
 
@@ -2416,57 +2408,6 @@ out_err:
 	f2fs_up_write(&sbi->sb_lock);
 	mnt_drop_write_file(filp);
 	return err;
-}
-
-static int f2fs_ioc_get_encryption_policy_ex(struct file *filp,
-					     unsigned long arg)
-{
-	if (!f2fs_sb_has_encrypt(F2FS_I_SB(file_inode(filp))))
-		return -EOPNOTSUPP;
-
-	return fscrypt_ioctl_get_policy_ex(filp, (void __user *)arg);
-}
-
-static int f2fs_ioc_add_encryption_key(struct file *filp, unsigned long arg)
-{
-	if (!f2fs_sb_has_encrypt(F2FS_I_SB(file_inode(filp))))
-		return -EOPNOTSUPP;
-
-	return fscrypt_ioctl_add_key(filp, (void __user *)arg);
-}
-
-static int f2fs_ioc_remove_encryption_key(struct file *filp, unsigned long arg)
-{
-	if (!f2fs_sb_has_encrypt(F2FS_I_SB(file_inode(filp))))
-		return -EOPNOTSUPP;
-
-	return fscrypt_ioctl_remove_key(filp, (void __user *)arg);
-}
-
-static int f2fs_ioc_remove_encryption_key_all_users(struct file *filp,
-						    unsigned long arg)
-{
-	if (!f2fs_sb_has_encrypt(F2FS_I_SB(file_inode(filp))))
-		return -EOPNOTSUPP;
-
-	return fscrypt_ioctl_remove_key_all_users(filp, (void __user *)arg);
-}
-
-static int f2fs_ioc_get_encryption_key_status(struct file *filp,
-					      unsigned long arg)
-{
-	if (!f2fs_sb_has_encrypt(F2FS_I_SB(file_inode(filp))))
-		return -EOPNOTSUPP;
-
-	return fscrypt_ioctl_get_key_status(filp, (void __user *)arg);
-}
-
-static int f2fs_ioc_get_encryption_nonce(struct file *filp, unsigned long arg)
-{
-	if (!f2fs_sb_has_encrypt(F2FS_I_SB(file_inode(filp))))
-		return -EOPNOTSUPP;
-
-	return fscrypt_ioctl_get_nonce(filp, (void __user *)arg);
 }
 
 static int f2fs_ioc_gc(struct file *filp, unsigned long arg)
@@ -3169,11 +3110,21 @@ static inline u32 f2fs_xflags_to_iflags(u32 xflags)
 	return iflags;
 }
 
+/*
+ * 4.9 has no simple_fill_fsxattr() (added in 5.10).  Copied from
+ * include/linux/fs.h in 5.10: zero the structure, then set only xflags.
+ */
+static inline void f2fs_simple_fill_fsxattr(struct fsxattr *fa, __u32 xflags)
+{
+	memset(fa, 0, sizeof(*fa));
+	fa->fsx_xflags = xflags;
+}
+
 static void f2fs_fill_fsxattr(struct inode *inode, struct fsxattr *fa)
 {
 	struct f2fs_inode_info *fi = F2FS_I(inode);
 
-	simple_fill_fsxattr(fa, f2fs_iflags_to_xflags(fi->i_flags));
+	f2fs_simple_fill_fsxattr(fa, f2fs_iflags_to_xflags(fi->i_flags));
 
 	if (f2fs_sb_has_project_quota(F2FS_I_SB(inode)))
 		fa->fsx_projid = from_kprojid(&init_user_ns, fi->i_projid);
@@ -3188,6 +3139,67 @@ static int f2fs_ioc_fsgetxattr(struct file *filp, unsigned long arg)
 
 	if (copy_to_user((struct fsxattr __user *)arg, &fa, sizeof(fa)))
 		return -EFAULT;
+	return 0;
+}
+
+/*
+ * 4.9 has no vfs_ioc_fssetxattr_check() (added in 5.10).  Copied verbatim
+ * from fs/inode.c in 5.10, minus EXPORT_SYMBOL.
+ *
+ * Note: the caller should be holding i_mutex, or else be sure that they have
+ * exclusive access to the inode structure.
+ */
+static int f2fs_ioc_fssetxattr_check(struct inode *inode,
+		const struct fsxattr *old_fa, struct fsxattr *fa)
+{
+	/*
+	 * Can't modify an immutable/append-only file unless we have
+	 * appropriate permission.
+	 */
+	if ((old_fa->fsx_xflags ^ fa->fsx_xflags) &
+			(FS_XFLAG_IMMUTABLE | FS_XFLAG_APPEND) &&
+	    !capable(CAP_LINUX_IMMUTABLE))
+		return -EPERM;
+
+	/*
+	 * Project Quota ID state is only allowed to change from within the init
+	 * namespace. Enforce that restriction only if we are trying to change
+	 * the quota ID state. Everything else is allowed in user namespaces.
+	 */
+	if (current_user_ns() != &init_user_ns) {
+		if (old_fa->fsx_projid != fa->fsx_projid)
+			return -EINVAL;
+		if ((old_fa->fsx_xflags ^ fa->fsx_xflags) &
+				FS_XFLAG_PROJINHERIT)
+			return -EINVAL;
+	}
+
+	/* Check extent size hints. */
+	if ((fa->fsx_xflags & FS_XFLAG_EXTSIZE) && !S_ISREG(inode->i_mode))
+		return -EINVAL;
+
+	if ((fa->fsx_xflags & FS_XFLAG_EXTSZINHERIT) &&
+			!S_ISDIR(inode->i_mode))
+		return -EINVAL;
+
+	if ((fa->fsx_xflags & FS_XFLAG_COWEXTSIZE) &&
+	    !S_ISREG(inode->i_mode) && !S_ISDIR(inode->i_mode))
+		return -EINVAL;
+
+	/*
+	 * It is only valid to set the DAX flag on regular files and
+	 * directories on filesystems.
+	 */
+	if ((fa->fsx_xflags & FS_XFLAG_DAX) &&
+	    !(S_ISREG(inode->i_mode) || S_ISDIR(inode->i_mode)))
+		return -EINVAL;
+
+	/* Extent size hints of zero turn off the flags. */
+	if (fa->fsx_extsize == 0)
+		fa->fsx_xflags &= ~(FS_XFLAG_EXTSIZE | FS_XFLAG_EXTSZINHERIT);
+	if (fa->fsx_cowextsize == 0)
+		fa->fsx_xflags &= ~FS_XFLAG_COWEXTSIZE;
+
 	return 0;
 }
 
@@ -3219,7 +3231,7 @@ static int f2fs_ioc_fssetxattr(struct file *filp, unsigned long arg)
 	inode_lock(inode);
 
 	f2fs_fill_fsxattr(inode, &old_fa);
-	err = vfs_ioc_fssetxattr_check(inode, &old_fa, &fa);
+	err = f2fs_ioc_fssetxattr_check(inode, &old_fa, &fa);
 	if (err)
 		goto out;
 
@@ -3399,76 +3411,6 @@ static int f2fs_ioc_measure_verity(struct file *filp, unsigned long arg)
 		return -EOPNOTSUPP;
 
 	return fsverity_ioctl_measure(filp, (void __user *)arg);
-}
-
-static int f2fs_ioc_read_verity_metadata(struct file *filp, unsigned long arg)
-{
-	if (!f2fs_sb_has_verity(F2FS_I_SB(file_inode(filp))))
-		return -EOPNOTSUPP;
-
-	return fsverity_ioctl_read_metadata(filp, (const void __user *)arg);
-}
-
-static int f2fs_ioc_getfslabel(struct file *filp, unsigned long arg)
-{
-	struct inode *inode = file_inode(filp);
-	struct f2fs_sb_info *sbi = F2FS_I_SB(inode);
-	char *vbuf;
-	int count;
-	int err = 0;
-
-	vbuf = f2fs_kzalloc(sbi, MAX_VOLUME_NAME, GFP_KERNEL);
-	if (!vbuf)
-		return -ENOMEM;
-
-	f2fs_down_read(&sbi->sb_lock);
-	count = utf16s_to_utf8s(sbi->raw_super->volume_name,
-			ARRAY_SIZE(sbi->raw_super->volume_name),
-			UTF16_LITTLE_ENDIAN, vbuf, MAX_VOLUME_NAME);
-	f2fs_up_read(&sbi->sb_lock);
-
-	if (copy_to_user((char __user *)arg, vbuf,
-				min(FSLABEL_MAX, count)))
-		err = -EFAULT;
-
-	kfree(vbuf);
-	return err;
-}
-
-static int f2fs_ioc_setfslabel(struct file *filp, unsigned long arg)
-{
-	struct inode *inode = file_inode(filp);
-	struct f2fs_sb_info *sbi = F2FS_I_SB(inode);
-	char *vbuf;
-	int err = 0;
-
-	if (!capable(CAP_SYS_ADMIN))
-		return -EPERM;
-
-	vbuf = strndup_user((const char __user *)arg, FSLABEL_MAX);
-	if (IS_ERR(vbuf))
-		return PTR_ERR(vbuf);
-
-	err = mnt_want_write_file(filp);
-	if (err)
-		goto out;
-
-	f2fs_down_write(&sbi->sb_lock);
-
-	memset(sbi->raw_super->volume_name, 0,
-			sizeof(sbi->raw_super->volume_name));
-	utf8s_to_utf16s(vbuf, strlen(vbuf), UTF16_LITTLE_ENDIAN,
-			sbi->raw_super->volume_name,
-			ARRAY_SIZE(sbi->raw_super->volume_name));
-
-	err = f2fs_commit_super(sbi, false);
-
-	f2fs_up_write(&sbi->sb_lock);
-
-	mnt_drop_write_file(filp);
-out:
-	kfree(vbuf);
-	return err;
 }
 
 static int f2fs_get_compress_blocks(struct file *filp, unsigned long arg)
@@ -4284,18 +4226,6 @@ static long __f2fs_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		return f2fs_ioc_get_encryption_policy(filp, arg);
 	case FS_IOC_GET_ENCRYPTION_PWSALT:
 		return f2fs_ioc_get_encryption_pwsalt(filp, arg);
-	case FS_IOC_GET_ENCRYPTION_POLICY_EX:
-		return f2fs_ioc_get_encryption_policy_ex(filp, arg);
-	case FS_IOC_ADD_ENCRYPTION_KEY:
-		return f2fs_ioc_add_encryption_key(filp, arg);
-	case FS_IOC_REMOVE_ENCRYPTION_KEY:
-		return f2fs_ioc_remove_encryption_key(filp, arg);
-	case FS_IOC_REMOVE_ENCRYPTION_KEY_ALL_USERS:
-		return f2fs_ioc_remove_encryption_key_all_users(filp, arg);
-	case FS_IOC_GET_ENCRYPTION_KEY_STATUS:
-		return f2fs_ioc_get_encryption_key_status(filp, arg);
-	case FS_IOC_GET_ENCRYPTION_NONCE:
-		return f2fs_ioc_get_encryption_nonce(filp, arg);
 	case F2FS_IOC_GARBAGE_COLLECT:
 		return f2fs_ioc_gc(filp, arg);
 	case F2FS_IOC_GARBAGE_COLLECT_RANGE:
@@ -4326,12 +4256,6 @@ static long __f2fs_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		return f2fs_ioc_enable_verity(filp, arg);
 	case FS_IOC_MEASURE_VERITY:
 		return f2fs_ioc_measure_verity(filp, arg);
-	case FS_IOC_READ_VERITY_METADATA:
-		return f2fs_ioc_read_verity_metadata(filp, arg);
-	case FS_IOC_GETFSLABEL:
-		return f2fs_ioc_getfslabel(filp, arg);
-	case FS_IOC_SETFSLABEL:
-		return f2fs_ioc_setfslabel(filp, arg);
 	case F2FS_IOC_GET_COMPRESS_BLOCKS:
 		return f2fs_get_compress_blocks(filp, arg);
 	case F2FS_IOC_RELEASE_COMPRESS_BLOCKS:
@@ -4668,12 +4592,6 @@ long f2fs_compat_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	case FS_IOC_SET_ENCRYPTION_POLICY:
 	case FS_IOC_GET_ENCRYPTION_PWSALT:
 	case FS_IOC_GET_ENCRYPTION_POLICY:
-	case FS_IOC_GET_ENCRYPTION_POLICY_EX:
-	case FS_IOC_ADD_ENCRYPTION_KEY:
-	case FS_IOC_REMOVE_ENCRYPTION_KEY:
-	case FS_IOC_REMOVE_ENCRYPTION_KEY_ALL_USERS:
-	case FS_IOC_GET_ENCRYPTION_KEY_STATUS:
-	case FS_IOC_GET_ENCRYPTION_NONCE:
 	case F2FS_IOC_GARBAGE_COLLECT:
 	case F2FS_IOC_WRITE_CHECKPOINT:
 	case F2FS_IOC_DEFRAGMENT:
@@ -4687,9 +4605,6 @@ long f2fs_compat_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	case F2FS_IOC_RESIZE_FS:
 	case FS_IOC_ENABLE_VERITY:
 	case FS_IOC_MEASURE_VERITY:
-	case FS_IOC_READ_VERITY_METADATA:
-	case FS_IOC_GETFSLABEL:
-	case FS_IOC_SETFSLABEL:
 	case F2FS_IOC_GET_COMPRESS_BLOCKS:
 	case F2FS_IOC_RELEASE_COMPRESS_BLOCKS:
 	case F2FS_IOC_RESERVE_COMPRESS_BLOCKS:

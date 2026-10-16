@@ -840,7 +840,7 @@ retry:
 
 	if (err) {
 		f2fs_update_inode_page(inode);
-		if (dquot_initialize_needed(inode))
+		if (dquot_initialize(inode))
 			set_sbi_flag(sbi, SBI_QUOTA_NEED_REPAIR);
 	}
 	if (!is_sbi_flag_set(sbi, SBI_IS_FREEZING))

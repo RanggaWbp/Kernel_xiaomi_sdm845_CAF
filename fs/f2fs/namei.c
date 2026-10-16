@@ -495,6 +495,25 @@ out:
 	return err;
 }
 
+#ifdef CONFIG_FS_ENCRYPTION
+extern const struct dentry_operations fscrypt_d_ops;
+#endif
+
+/*
+ * Padanan 4.9 untuk generic_set_encrypted_ci_d_ops() (fs/libfs.c, 4.19).
+ * Tree ini tidak punya CONFIG_UNICODE, jadi hanya bagian enkripsi yang
+ * relevan: pasang fscrypt_d_ops bila dentry adalah nama terenkripsi
+ * (no-key name). DCACHE_NOKEY_NAME (4.19) == DCACHE_ENCRYPTED_NAME (4.9),
+ * dan d_ops-nya adalah fscrypt_d_ops (fs/crypto/crypto.c).
+ */
+static inline void f2fs_set_encrypted_d_ops(struct dentry *dentry)
+{
+#ifdef CONFIG_FS_ENCRYPTION
+	if (dentry->d_flags & DCACHE_ENCRYPTED_NAME)
+		d_set_d_op(dentry, &fscrypt_d_ops);
+#endif
+}
+
 static struct dentry *f2fs_lookup(struct inode *dir, struct dentry *dentry,
 		unsigned int flags)
 {
@@ -515,7 +534,7 @@ static struct dentry *f2fs_lookup(struct inode *dir, struct dentry *dentry,
 	}
 
 	err = f2fs_prepare_lookup(dir, dentry, &fname);
-	generic_set_encrypted_ci_d_ops(dentry);
+	f2fs_set_encrypted_d_ops(dentry);
 	if (err == -ENOENT)
 		goto out_splice;
 	if (err)

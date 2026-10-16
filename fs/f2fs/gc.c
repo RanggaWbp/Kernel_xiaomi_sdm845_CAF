@@ -74,8 +74,6 @@ static int gc_thread_func(void *data)
 
 	set_freezable();
 	do {
-		bool sync_mode, foreground = false;
-
 		wait_event_interruptible_timeout(*wq,
 				kthread_should_stop() || freezing(current) ||
 				waitqueue_active(fggc_wq) ||
@@ -87,11 +85,9 @@ static int gc_thread_func(void *data)
 			rapid_gc_set_wakelock();
 			// Use 1 instead of 0 to allow thread interrupts
 			wait_ms = 1;
-			sbi->gc_mode = GC_URGENT;
 		} else {
 			rapid_gc_set_wakelock();
 			wait_ms = gc_th->min_sleep_time;
-			sbi->gc_mode = GC_NORMAL;
 		}
 
 		/* give it a try one time */
@@ -137,21 +133,22 @@ static int gc_thread_func(void *data)
 		 * invalidated soon after by user update or deletion.
 		 * So, I'd like to wait some time to collect dirty segments.
 		 */
-		if (sbi->gc_mode == GC_URGENT || sbi->rapid_gc) {
+		if (sbi->gc_mode == GC_URGENT_HIGH ||
+				sbi->gc_mode == GC_URGENT_MID || sbi->rapid_gc) {
 			if (!sbi->rapid_gc)
 				wait_ms = gc_th->urgent_sleep_time;
-			mutex_lock(&sbi->gc_mutex);
+			f2fs_down_write(&sbi->gc_lock);
 			goto do_gc;
 		}
 
-		if (!mutex_trylock(&sbi->gc_mutex)) {
+		if (!f2fs_down_write_trylock(&sbi->gc_lock)) {
 			stat_other_skip_bggc_count(sbi);
 			goto next;
 		}
 
 		if (!is_idle(sbi, GC_TIME)) {
 			increase_sleep_time(gc_th, &wait_ms);
-			mutex_unlock(&sbi->gc_mutex);
+			f2fs_up_write(&sbi->gc_lock);
 			stat_io_skip_bggc_count(sbi);
 			goto next;
 		}
@@ -161,14 +158,19 @@ static int gc_thread_func(void *data)
 		else
 			increase_sleep_time(gc_th, &wait_ms);
 do_gc:
-		stat_inc_bggc_count(sbi);
+		stat_inc_bggc_count(sbi->stat_info);
+
+		gc_control.init_gc_type = (sbi->rapid_gc ||
+				F2FS_OPTION(sbi).bggc_mode == BGGC_MODE_SYNC) ?
+				FG_GC : BG_GC;
+		gc_control.no_bg_gc = false;
+		gc_control.nr_free_secs = 0;
 
 		/* if return value is not zero, no victim was selected */
-		if (f2fs_gc(sbi, sbi->rapid_gc || test_opt(sbi, FORCE_FG_GC), true, NULL_SEGNO)) {
+		if (f2fs_gc(sbi, &gc_control)) {
 			wait_ms = gc_th->no_gc_sleep_time;
 			sbi->rapid_gc = false;
 			rapid_gc_set_wakelock();
-			sbi->gc_mode = GC_NORMAL;
 			f2fs_info(sbi, "No more rapid GC victim found, "
 				"sleeping for %u ms", wait_ms);
 
@@ -246,8 +248,7 @@ void f2fs_stop_gc_thread(struct f2fs_sb_info *sbi)
 	if (!gc_th)
 		return;
 	kthread_stop(gc_th->f2fs_gc_task);
-	kvfree(gc_th);
-	sbi->gc_mode = GC_NORMAL;
+	kfree(gc_th);
 	sbi->gc_thread = NULL;
 }
 
