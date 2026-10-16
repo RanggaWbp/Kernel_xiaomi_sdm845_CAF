@@ -21,6 +21,7 @@
 #include <linux/posix_acl_xattr.h>
 #include "f2fs.h"
 #include "xattr.h"
+#include "segment.h"
 
 static void *xattr_alloc(struct f2fs_sb_info *sbi, int size, bool *is_inline)
 {
