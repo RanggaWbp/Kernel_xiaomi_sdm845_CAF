@@ -754,6 +754,7 @@ int f2fs_submit_page_bio(struct f2fs_io_info *fio)
 	return 0;
 }
 
+#ifdef CONFIG_F2FS_FS_COMPRESSION
 static bool page_is_mergeable(struct f2fs_sb_info *sbi, struct bio *bio,
 				block_t last_blkaddr, block_t cur_blkaddr)
 {
@@ -764,6 +765,7 @@ static bool page_is_mergeable(struct f2fs_sb_info *sbi, struct bio *bio,
 		return false;
 	return __same_bdev(sbi, cur_blkaddr, bio);
 }
+#endif
 
 static void del_bio_entry(struct bio_entry *be)
 {
