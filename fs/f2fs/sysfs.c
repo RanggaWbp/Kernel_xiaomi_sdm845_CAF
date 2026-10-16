@@ -10,7 +10,6 @@
 #include <linux/proc_fs.h>
 #include <linux/f2fs_fs.h>
 #include <linux/seq_file.h>
-#include <linux/unicode.h>
 #include <linux/ioprio.h>
 #include <linux/sysfs.h>
 
@@ -1290,6 +1289,32 @@ void f2fs_exit_sysfs(void)
 	f2fs_proc_root = NULL;
 }
 
+/*
+ * proc_create_single_data() tidak ada di 4.9 (baru ada 5.0). Padanannya:
+ * proc_create_data() dengan file_operations yang memakai single_open().
+ * Pola ini sama dengan yang dipakai f2fs-stable linux-4.9.y.
+ */
+#define F2FS_PROC_FILE_DEF(_name)					\
+static int _name##_open_fs(struct inode *inode, struct file *file)	\
+{									\
+	return single_open(file, _name##_seq_show, PDE_DATA(inode));	\
+}									\
+static const struct file_operations f2fs_seq_##_name##_fops = {		\
+	.owner		= THIS_MODULE,					\
+	.open		= _name##_open_fs,				\
+	.read		= seq_read,					\
+	.llseek		= seq_lseek,					\
+	.release	= single_release,				\
+}
+
+F2FS_PROC_FILE_DEF(segment_info);
+F2FS_PROC_FILE_DEF(segment_bits);
+#ifdef CONFIG_F2FS_IOSTAT
+F2FS_PROC_FILE_DEF(iostat_info);
+#endif
+F2FS_PROC_FILE_DEF(victim_bits);
+F2FS_PROC_FILE_DEF(discard_plist);
+
 int f2fs_register_sysfs(struct f2fs_sb_info *sbi)
 {
 	struct super_block *sb = sbi->sb;
@@ -1321,17 +1346,17 @@ int f2fs_register_sysfs(struct f2fs_sb_info *sbi)
 		sbi->s_proc = proc_mkdir(sb->s_id, f2fs_proc_root);
 
 	if (sbi->s_proc) {
-		proc_create_single_data("segment_info", 0444, sbi->s_proc,
+		proc_create_data("segment_info", 0444, sbi->s_proc, &f2fs_seq_segment_info_fops,
 				segment_info_seq_show, sb);
-		proc_create_single_data("segment_bits", 0444, sbi->s_proc,
+		proc_create_data("segment_bits", 0444, sbi->s_proc, &f2fs_seq_segment_bits_fops,
 				segment_bits_seq_show, sb);
 #ifdef CONFIG_F2FS_IOSTAT
-		proc_create_single_data("iostat_info", 0444, sbi->s_proc,
+		proc_create_data("iostat_info", 0444, sbi->s_proc, &f2fs_seq_iostat_info_fops,
 				iostat_info_seq_show, sb);
 #endif
-		proc_create_single_data("victim_bits", 0444, sbi->s_proc,
+		proc_create_data("victim_bits", 0444, sbi->s_proc, &f2fs_seq_victim_bits_fops,
 				victim_bits_seq_show, sb);
-		proc_create_single_data("discard_plist_info", 0444, sbi->s_proc,
+		proc_create_data("discard_plist_info", 0444, sbi->s_proc, &f2fs_seq_discard_plist_fops,
 				discard_plist_seq_show, sb);
 	}
 	return 0;

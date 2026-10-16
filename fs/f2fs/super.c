@@ -24,7 +24,6 @@
 #include <linux/sysfs.h>
 #include <linux/quota.h>
 #include <linux/cleancache.h>
-#include <linux/unicode.h>
 #include <linux/zstd.h>
 #include <linux/lz4.h>
 

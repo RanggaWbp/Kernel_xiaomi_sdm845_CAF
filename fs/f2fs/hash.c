@@ -14,7 +14,6 @@
 #include <linux/f2fs_fs.h>
 #include <linux/cryptohash.h>
 #include <linux/pagemap.h>
-#include <linux/unicode.h>
 
 #include "f2fs.h"
 
