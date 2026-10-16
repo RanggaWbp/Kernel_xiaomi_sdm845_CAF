@@ -243,6 +243,7 @@ int f2fs_ra_meta_pages(struct f2fs_sb_info *sbi, block_t start, int nrpages,
 		.is_por = (type == META_POR),
 	};
 	struct blk_plug plug;
+	int err;
 
 	if (unlikely(type == META_POR))
 		fio.op_flags &= ~REQ_META;
@@ -401,7 +402,7 @@ long f2fs_sync_meta_pages(struct f2fs_sb_info *sbi, enum page_type type,
 	};
 	struct blk_plug plug;
 
-	pagevec_init(&pvec);
+	pagevec_init(&pvec, 0);
 
 	blk_start_plug(&plug);
 
@@ -1433,7 +1434,7 @@ static void commit_checkpoint(struct f2fs_sb_info *sbi,
 
 static inline u64 get_sectors_written(struct block_device *bdev)
 {
-	return (u64)part_stat_read(bdev->bd_part, sectors[STAT_WRITE]);
+	return (u64)part_stat_read(bdev->bd_part, sectors[1]);
 }
 
 u64 f2fs_get_sectors_written(struct f2fs_sb_info *sbi)
