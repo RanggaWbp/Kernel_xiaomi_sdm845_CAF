@@ -8,12 +8,12 @@ qcom,e1_atl_3000mAh {
 	qcom,battery-beta = <3380>;
 	qcom,fg-cc-cv-threshold-mv = <4390>;
 	qcom,battery-type = "e8_atl_3000mAh";
-	qcom,fastchg-current-ma = <2900>;
+	qcom,fastchg-current-ma = <3300>;
 	qcom,jeita-fcc-ranges = <0   50   290000
                                  51  100  870000
                                  101 150  1450000
-				 151 450  2900000
-				 451 650 2030000>;
+				 151 450  3300000
+				 451 650 2310000>;
 	qcom,jeita-fv-ranges =  <0   50   4400000
                                  51  100  4400000
                                  101 150  4400000

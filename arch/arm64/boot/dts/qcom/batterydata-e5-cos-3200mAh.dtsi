@@ -8,12 +8,12 @@ qcom,e5_cos_3200mAh {
 	qcom,battery-beta = <3380>;
 
 	qcom,battery-type = "e5_cos_3200mAh";
-	qcom,fastchg-current-ma = <3100>;
+	qcom,fastchg-current-ma = <3300>;
 	qcom,jeita-fcc-ranges = <0   50   310000
 							51  100  930000
                             101 150  2170000
-							151 450  3100000
-							451 650 2170000>;
+							151 450  3300000
+							451 650 2310000>;
 	qcom,jeita-fv-ranges =  <0   50   4400000
                             51  100  4400000
                             101 150  4400000

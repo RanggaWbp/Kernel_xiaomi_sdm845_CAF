@@ -13,7 +13,7 @@
 
 qcom,itech-3020mah {
 	qcom,max-voltage-uv = <4400000>;
-	qcom,fastchg-current-ma = <3100>;
+	qcom,fastchg-current-ma = <3300>;
 	qcom,nom-batt-capacity-mah = <3200>;
 	qcom,fg-cc-cv-threshold-mv = <4390>;
 	qcom,batt-id-kohm = <150>;
@@ -22,8 +22,8 @@ qcom,itech-3020mah {
 	qcom,jeita-fcc-ranges = <0   50   300000
                                  51  100  925000
                                  101 150  1550000
-				 151 450  3100000
-				 451 650 2170000>;
+				 151 450  3300000
+				 451 650 2310000>;
 	qcom,jeita-fv-ranges =  <0   50   4400000
                                  51  100  4400000
                                  101 150  4400000

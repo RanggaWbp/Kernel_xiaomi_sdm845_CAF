@@ -356,7 +356,7 @@
 
 &pmi8998_charger {
 	qcom,usb-icl-ua = <2800000>;
-	qcom,fcc-max-ua = <2900000>;
+	qcom,fcc-max-ua = <3300000>;
 	qcom,fcc-low-temp-delta = <2700000>;
 	qcom,fcc-hot-temp-delta = <1500000>;
 	qcom,fcc-cool-temp-delta = <2100000>;
