@@ -106,14 +106,14 @@ jobs:
           if [ ! -d "tc/proton-clang" ]; then
             git clone --depth 1 "$CLANG_REPO" tc/proton-clang
           fi
-          # AOSP GCC 4.9 (64-bit); fallback ke mirror LineageOS bila
-          # android.googlesource.com mengembalikan 503
+          # AOSP GCC 4.9 (64-bit); fall back to the LineageOS mirror when
+          # android.googlesource.com answers 503
           if [ ! -d "tc/gcc-64" ]; then
             git clone --depth 1 --branch "$GCC_64_BRANCH" "$GCC_64_SOURCE" tc/gcc-64 \
               || { rm -rf tc/gcc-64; \
                    git clone --depth 1 --branch "$GCC_64_MIRROR_BRANCH" "$GCC_64_MIRROR" tc/gcc-64; }
           fi
-          # AOSP GCC 4.9 (32-bit); fallback idem
+          # AOSP GCC 4.9 (32-bit); same fallback
           if [ ! -d "tc/gcc-32" ]; then
             git clone --depth 1 --branch "$GCC_32_BRANCH" "$GCC_32_SOURCE" tc/gcc-32 \
               || { rm -rf tc/gcc-32; \
