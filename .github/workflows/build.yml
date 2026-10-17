@@ -295,9 +295,17 @@ jobs:
             cp -r AnyKernel3/* out/img/
             cp anykernel/anykernel.sh out/img/anykernel.sh
             sed -i "s/__VARIANT__/${VARIANT_UC}/g" out/img/anykernel.sh
-            sed -i "s/kernel.string=.*/kernel.string=BakaSU Kernel ${BRANCH} for ${{ matrix.device }} (${VARIANT_UC})/" out/img/anykernel.sh
+            # kernel.string must stay shell-parseable: anykernel.sh is SOURCED by
+            # update-binary, so parentheses in the value are a parse error
+            # ("syntax error near unexpected token `('") and every flash dies with
+            # TWRP ERROR 1 before the script runs. Dash only, no brackets.
+            sed -i "s/kernel.string=.*/kernel.string=BakaSU Kernel ${BRANCH} for ${{ matrix.device }} - ${VARIANT_UC}/" out/img/anykernel.sh
             sed -i "s|## Kernel xiaomi sdm845.*|## Kernel xiaomi sdm845 (CAF 4.9.337) by RanggaWbp|" out/img/anykernel.sh
             sed -i "s|## Features:.*|## Features: BakaSU + SUSFS + NoMount + BBG + DroidSpaces + ReKernel + NTSYNC + BORE + ADIOS + MGLRU + LZ4 + BBRv3|" out/img/anykernel.sh
+            # Same class of failure as above, caught before zipping: TWRP only
+            # reports "Updater process ended with ERROR: 1" with no line number,
+            # so a syntax error has to be caught here instead of in the field.
+            sh -n out/img/anykernel.sh || { echo "::error::anykernel.sh fails sh -n after templating"; exit 1; }
             cp out/Image.gz-dtb/Image.gz-dtb out/img/Image.gz-dtb
             ZIP_NAME="BakaSU-${{ matrix.device }}-${VARIANT_UC}-v${RUN_ID}-$(date +%Y%m%d).zip"
             ( cd out/img && zip -r9 "$GITHUB_WORKSPACE/artifacts/$ZIP_NAME" . )
