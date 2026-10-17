@@ -1866,6 +1866,28 @@ bool f2fs_load_compressed_page(struct f2fs_sb_info *sbi, struct page *page,
 	return hitted;
 }
 
+/*
+ * 4.9 tidak punya pagevec_lookup_range() (baru ada di 4.11) dan tidak punya
+ * find_get_pages_range() tanpa tag. Padanan ini memakai pagevec_lookup() lalu
+ * memajukan indeks manual. Batas atas tidak dipaksakan di sini karena
+ * pemanggil sudah memeriksa page->index > end di dalam loop.
+ */
+static unsigned int f2fs_pagevec_lookup_range(struct pagevec *pvec,
+		struct address_space *mapping, pgoff_t *index, pgoff_t end)
+{
+	unsigned int nr;
+
+	if (*index > end)
+		return 0;
+
+	nr = pagevec_lookup(pvec, mapping, *index, PAGEVEC_SIZE);
+	if (!nr)
+		return 0;
+
+	*index = pvec->pages[nr - 1]->index + 1;
+	return nr;
+}
+
 void f2fs_invalidate_compress_pages(struct f2fs_sb_info *sbi, nid_t ino)
 {
 	struct address_space *mapping = COMPRESS_MAPPING(sbi);
@@ -1882,7 +1904,7 @@ void f2fs_invalidate_compress_pages(struct f2fs_sb_info *sbi, nid_t ino)
 		unsigned int nr_pages;
 		int i;
 
-		nr_pages = pagevec_lookup_range(&pvec, mapping,
+		nr_pages = f2fs_pagevec_lookup_range(&pvec, mapping,
 						&index, end - 1);
 		if (!nr_pages)
 			break;
