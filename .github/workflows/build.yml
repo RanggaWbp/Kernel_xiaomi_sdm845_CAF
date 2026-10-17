@@ -472,6 +472,16 @@ jobs:
             echo '```sh'
             echo "adb shell 'cat /vendor/etc/fstab.qcom | grep -E \"system|logical\"'"
             echo '```'
+            echo
+            echo "No laptop? Run this on the phone itself - Termux, or any terminal emulator app:"
+            echo
+            echo '```sh'
+            echo "cat /vendor/etc/fstab.qcom | grep -E 'system|logical'"
+            echo "# if that file does not exist, list what the rom ships"
+            echo "ls /vendor/etc/fstab*"
+            echo "# if the terminal app runs as shell and the file is unreadable"
+            echo "su -c 'cat /vendor/etc/fstab.qcom' | grep -E 'system|logical'"
+            echo '```'
             echo "If \`/system\` shows up with \`first_stage_mount\`, the rom ships its own fstab (Android 12+) — use \`DYNAMIC\`. If the \`/system\`/\`/vendor\` entries are only \`recoveryonly\` or missing entirely, the rom is Android 10/11: use \`SE\` when it has /system_ext, \`NSE\` when it does not."
             echo
             echo "> Wrong variant = boot failure: the kernel waits for a partition that does not exist, or mounts a static partition while the content actually lives inside \`super\`."
