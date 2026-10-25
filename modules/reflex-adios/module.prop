@@ -1,6 +1,0 @@
-id=reflex-adios
-name=Reflex + ADIOS re-assert
-version=1.0
-versionCode=10
-author=RanggaWbp
-description=Re-asserts the kernel defaults (reflex CPU governor, adios I/O scheduler) after vendor/system init overwrites them at late_start. Works around /vendor/etc/init/hw/init.qcom.power.rc lines 147/154 (schedutil) and /vendor/etc/init/hw/init.qcom.rc lines 58/63 (cfq), plus /system/etc/init/qassa-iosched.rc. Kernel-side only; does not touch /vendor.
