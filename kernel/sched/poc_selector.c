@@ -95,13 +95,24 @@ static bool poc_selector_skip;
  * SMT sibling selection via select_idle_smt(prev) and
  * nr_idle_scan-limited select_idle_cpu().
  *
- * When disabled (default), POC handles SMT sibling selection
- * itself, trying prev's SMT sibling for cache locality, then
+ * When disabled, POC handles SMT sibling selection itself,
+ * trying prev's SMT sibling for cache locality, then
  * LLC-wide RR search for remaining idle CPUs.  Level 5/6 is
  * gated by nr_idle_scan (SIS_UTIL): when LLC utilization
  * exceeds ~85%, broader SMT search is skipped.
+ *
+ * Default: enabled.
+ *
+ * NOTE (SDM845): every consumer of this key lives inside
+ * `#ifdef CONFIG_SCHED_SMT` and is further guarded by
+ * sched_smt_active().  All six target devices are big.LITTLE
+ * with no SMT and CONFIG_SCHED_SMT=n, so this key is compiled
+ * out of the image and cannot have any runtime effect there.
+ * It is enabled for parity with the requested default and so
+ * the sysctl stays meaningful on SMT hardware; the runtime
+ * /proc/sys/kernel/sched_poc_smt_fallback can still turn it off.
  */
-DEFINE_STATIC_KEY_FALSE(sched_poc_smt_fallback);
+DEFINE_STATIC_KEY_TRUE(sched_poc_smt_fallback);
 
 /*
  * SMT consecutive layout: sched_poc_smt_consecutive
@@ -144,9 +155,17 @@ DEFINE_STATIC_KEY_TRUE(sched_poc_smt_uniform);
  * it ran on last, keeping warm TLB/L1/L2 state.
  *
  * Checked after Level 0 (saturation) and before core_mask derivation.
- * Default: disabled.
+ *
+ * Default: enabled.
+ *
+ * NOTE (SDM845): this check is inside the
+ * `#ifdef CONFIG_SCHED_SMT` / sched_smt_active() block of
+ * select_idle_cpu_poc(), so with CONFIG_SCHED_SMT=n (all six
+ * target devices) it is compiled out and has no runtime effect.
+ * Enabled for parity with the requested default; the runtime
+ * /proc/sys/kernel/sched_poc_target_sticky can still turn it off.
  */
-DEFINE_STATIC_KEY_FALSE(sched_poc_target_sticky);
+DEFINE_STATIC_KEY_TRUE(sched_poc_target_sticky);
 
 /*
  * Early select: sched_poc_early_select
@@ -252,7 +271,16 @@ DEFINE_STATIC_KEY_TRUE(sched_poc_rr_improved);
  * Switching via sysctl resyncs the newly-active representation
  * before readers can observe it.
  *
- * Default: disabled.
+ * Default: disabled, and deliberately left disabled here.
+ *
+ * This switches idle tracking from the validated atomic64_t
+ * bitmap path to the u8[64] flag-array + multiply-and-shift
+ * path.  Upstream keeps it off by default, the SDM845 devices
+ * only just stopped bootlooping, and there is no way to test
+ * it before the next CI cycle -- so it stays
+ * DEFINE_STATIC_KEY_FALSE.  It can still be enabled at runtime
+ * via /proc/sys/kernel/sched_poc_lockless_bitmap once the
+ * atomic64 path has been shaken down on real hardware.
  */
 DEFINE_STATIC_KEY_FALSE(sched_poc_lockless_bitmap);
 
@@ -260,8 +288,14 @@ DEFINE_STATIC_KEY_FALSE(sched_poc_lockless_bitmap);
  * Debug counters (sysctl kernel.sched_poc_count):
  *
  * Per-CPU counters for each selection level hit.
- * Guarded by static key — zero overhead when disabled (default).
+ * Guarded by static key — zero overhead when disabled.
  * Aggregated across all CPUs and exposed via sysfs.
+ *
+ * Default: enabled.  The cost is one per-CPU increment per
+ * selection, and it is what makes the selector observable on
+ * the device (which is how the POC F1 bootloop was diagnosed
+ * in the first place).  Turn it off at runtime with
+ * /proc/sys/kernel/sched_poc_count.
  */
 enum poc_level {
 	POC_LV1S = 0,	/* target CPU sticky (L1/TLB affinity) */
@@ -282,7 +316,7 @@ enum poc_level {
 
 #define POC_SMT_LEVEL_OFFSET (POC_LV5 - POC_LV2)
 
-DEFINE_STATIC_KEY_FALSE(sched_poc_count_enabled);
+DEFINE_STATIC_KEY_TRUE(sched_poc_count_enabled);
 
 static DEFINE_PER_CPU(unsigned long[POC_NR_LEVELS], poc_debug_cnt);
 

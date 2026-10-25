@@ -233,6 +233,11 @@ jobs:
           check_symbol "CONFIG_SCHED_POC_SELECTOR" "y"
           check_symbol "CONFIG_CPU_FREQ_GOV_REFLEX" "y"
           check_symbol "CONFIG_CPU_FREQ_DEFAULT_GOV_REFLEX" "y"
+          # ADIOS must be the *default* scheduler, not merely built: without
+          # CONFIG_DEFAULT_ADIOS the "Default I/O scheduler" choice still
+          # resolves to CFQ and adios-iosched.o is dead code in the image.
+          check_symbol "CONFIG_IOSCHED_ADIOS" "y"
+          check_symbol "CONFIG_DEFAULT_ADIOS" "y"
           if [ $failures -gt 0 ]; then
             echo "Config validation failed with $failures errors"
             exit 1
@@ -252,6 +257,10 @@ jobs:
           # POC Selector is #included into fair.o, so fair.o is the only
           # object that proves it compiled into the image.
           test -f out/kernel/sched/fair.o || { echo 'ERROR: fair.o not built'; exit 1; }
+          # ADIOS must be the built-in default scheduler: IOSCHED_ADIOS can be
+          # =y while DEFAULT_ADIOS is unset (choice default is CFQ), which
+          # compiles adios-iosched.o but never selects it at boot.
+          test -f out/block/adios-iosched.o || { echo 'ERROR: adios-iosched.o not built'; exit 1; }
           # Reflex must be built in, not a module: the AK3 zip ships only
           # Image.gz-dtb, so a .ko would never reach the device.
           test -f out/drivers/cpufreq/cpufreq_reflex.o || { echo 'ERROR: cpufreq_reflex.o not built'; exit 1; }
