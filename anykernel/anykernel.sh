@@ -126,16 +126,22 @@ ui_print "   switch back:"
 ui_print "     echo reflex > /sys/devices/system/cpu/cpufreq/"
 ui_print "     policy0/scaling_governor"
 # --- I/O ------------------------------------------------------------
-# ADIOS is built in (=y) but is NOT the queue default; 4.9 has no
-# CONFIG_DEFAULT_IOSCHED, so mq-deadline stays the default unless the
-# user selects it per device.
+# ADIOS is the queue default: block/Kconfig.iosched's "Default I/O
+# scheduler" choice defaults to DEFAULT_CFQ, so CONFIG_DEFAULT_ADIOS=y
+# in the defconfig is what makes DEFAULT_IOSCHED resolve to "adios".
+# With only CONFIG_IOSCHED_ADIOS=y the object is built and CFQ still
+# wins -- that is the trap this line documents.
 ui_print " I/O SCHEDULER"
+ui_print " ADIOS adaptive deadline"
+ui_print "   ACTIVE by default (CONFIG_DEFAULT_ADIOS=y)"
+ui_print "   verify: cat /sys/block/sda/queue/scheduler"
+ui_print "   switch: echo adios > /sys/block/sd*/queue/scheduler"
+ui_print "   also built in: noop deadline cfq maple anxiety"
+ui_print "     zen tripndroid fiops sio"
+# --- Memory ---------------------------------------------------------
+ui_print " MEMORY"
 ui_print " MGLRU multi-gen LRU"
 ui_print "   ACTIVE (/sys/kernel/mm/lru_gen/enabled)"
-ui_print " ADIOS"
-ui_print "   BUILT-IN, not the queue default, select it with:"
-ui_print "     echo adios > /sys/block/sd*/queue/scheduler"
-ui_print "   OPTIONAL: mq-deadline (default), noop, cfq, bfq"
 # --- Network / compression -----------------------------------------
 ui_print " NETWORK"
 ui_print " BBRv3 TCP congestion control"
