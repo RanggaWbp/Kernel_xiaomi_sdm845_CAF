@@ -1044,6 +1044,20 @@ static int rfx_start(struct cpufreq_policy *policy)
 	void (*uu)(struct update_util_data *data, u64 time, unsigned int flags);
 	unsigned int cpu;
 
+	/*
+	 * Diagnostic only, no behaviour change.
+	 *
+	 * governor->start is called from cpufreq_set_policy()
+	 * (drivers/cpufreq/cpufreq.c:2400) only after this governor won
+	 * the policy, so a line here proves reflex really owns it. If
+	 * scaling_governor later reads schedutil, something in userspace
+	 * (or a last_governor restore on a later hotplug) took it away
+	 * afterwards -- reflex did not lose the initial selection.
+	 *
+	 * Once per governor switch or policy init, not per update.
+	 */
+	pr_info("governor started on policy cpu %u\n", cpumask_first(policy->related_cpus));
+
 	rfx_update_rate_limit_us(rfx_pol);
 	rfx_speed_floors(rfx_pol);
 	rfx_pol->last_freq_update_time	= 0;
@@ -1132,6 +1146,22 @@ static struct cpufreq_governor reflex_gov = {
 #ifdef CONFIG_CPU_FREQ_DEFAULT_GOV_REFLEX
 struct cpufreq_governor *cpufreq_default_governor(void)
 {
+	/*
+	 * Diagnostic only, no behaviour change.
+	 *
+	 * cpufreq_init_policy() (drivers/cpufreq/cpufreq.c:1109) tries
+	 * find_governor(policy->last_governor) first and only falls back
+	 * to this function when that lookup fails, so seeing this line
+	 * proves the Kconfig default path was actually taken and was not
+	 * short-circuited by a last_governor restored from a previous
+	 * boot or a hotplug cycle (cpufreq.c:1476 writes it,
+	 * cpufreq.c:2273 clears it, and cpufreq.c:1281 does not).
+	 *
+	 * Reached once per policy init (cpufreq_online ->
+	 * cpufreq_init_policy -> cpufreq_set_policy), never from the
+	 * per-update callbacks, so it cannot fire in a loop.
+	 */
+	pr_info("cpufreq_default_governor(): CONFIG_CPU_FREQ_DEFAULT_GOV_REFLEX is the Kconfig default\n");
 	return &reflex_gov;
 }
 #endif
