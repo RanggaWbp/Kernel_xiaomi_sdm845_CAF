@@ -227,6 +227,11 @@ jobs:
           check_symbol "CONFIG_TCP_CONG_BBR3" "y"
           check_symbol "CONFIG_DEFAULT_BBR3" "y"
           check_symbol "CONFIG_DEFAULT_TCP_CONG" '"bbr3"'
+          # Backported scheduler / cpufreq features: a symbol silently dropped
+          # by a Kconfig dependency miss still leaves =y in .config, so the
+          # object check below is what proves it actually compiled in.
+          check_symbol "CONFIG_SCHED_POC_SELECTOR" "y"
+          check_symbol "CONFIG_CPU_FREQ_GOV_REFLEX" "y"
           if [ $failures -gt 0 ]; then
             echo "Config validation failed with $failures errors"
             exit 1
@@ -243,6 +248,13 @@ jobs:
           cp out/arch/arm64/boot/Image.gz out/Image.gz/
           # ntsync must be built in, not silently dropped by Kconfig deps
           test -f out/drivers/misc/ntsync.o || { echo 'ERROR: ntsync.o not built'; exit 1; }
+          # POC Selector is #included into fair.o, so fair.o is the only
+          # object that proves it compiled into the image.
+          test -f out/kernel/sched/fair.o || { echo 'ERROR: fair.o not built'; exit 1; }
+          # Reflex must be built in, not a module: the AK3 zip ships only
+          # Image.gz-dtb, so a .ko would never reach the device.
+          test -f out/drivers/cpufreq/cpufreq_reflex.o || { echo 'ERROR: cpufreq_reflex.o not built'; exit 1; }
+          test ! -f out/drivers/cpufreq/cpufreq_reflex.ko || { echo 'ERROR: reflex built as a module, would never be flashed'; exit 1; }
           # BBRv3 must have really compiled into the image, not just been set
           # in .config: TCP_CONG_BBR3 hides behind TCP_CONG_ADVANCED, and a
           # dependency miss leaves =y in .config with no object.
