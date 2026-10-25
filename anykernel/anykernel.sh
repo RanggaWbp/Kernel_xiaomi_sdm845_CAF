@@ -63,103 +63,56 @@ PATCH_VBMETA_FLAG=auto;
 
 ## begin properties
 # ====================================================================
-# Flash UI. Plain ASCII on purpose: only characters a minimal recovery
-# shell can print are used here, and every ui_print line below is kept
-# under 72 columns so nothing wraps on a phone screen.
+# Flash UI layout rules -- keep these, they are what makes the screen
+# readable on a 48-64 column monospaced recovery console:
+#   * ONE separator character ('-') and ONE width (56 columns) for every
+#     rule line. Nothing is centred by hand, nothing is wrapped: if a line
+#     would exceed the width the text is shortened instead.
+#   * every content line is indented by exactly one space, so the left edge
+#     of all text lines up.
+#   * the feature list is one line per feature, "NAME <pad> STATUS", with the
+#     status column always starting at column 15 (index 14).
+#   * ASCII only, and no '=' at column 0 below this point, so nothing here
+#     can be mistaken for a property.
 #
-# NOTE: no line below starts with a lowercase key=value. The property
-# parser above only reads the first six lines of this file, but a stray
-# lowercase key=value line is silently ignored at best and confusing at
-# worst -- keep the '=' characters inside quoted strings only.
-#
-# Status words, used consistently throughout:
-#   ACTIVE    = on by default, nothing to switch
-#   BUILT-IN  = compiled in, not selected by default
-#   OPTIONAL  = available, but only if the user switches to it
+# Status words:
+#   active   on by default in this build, nothing to switch
+#   active*  kernel default, but /vendor init can override it at boot
+#            (see the footnote printed under the feature list)
 # ====================================================================
-ui_print "===================================================="
-ui_print " BakaSU Kernel for Xiaomi SDM845 (CAF 4.9.337)"
-ui_print " by RanggaWbp"
-# The only difference between the NSE / SE / DYNAMIC zips is the fstab
-# node in the appended DTB, so print it here: a user who reports a
-# bootloop can say which variant was flashed without guessing from the
-# filename.
-ui_print " Variant: __VARIANT__"
-ui_print "   NSE     no /system_ext"
-ui_print "   SE      /system_ext on cust"
-ui_print "   DYNAMIC super / logical"
-# Print the codename here as well. do_devicecheck() above already reports
-# a match, but it only prints on success and prints nothing on the
-# no-check path; this always shows what ro.product.device actually
-# reports, which is what you want when a new device has to be added to
-# device.name1-6 above.
-ui_print " Device : $(getprop ro.product.device 2>/dev/null)"
-ui_print "----------------------------------------------------"
-# --- CPU scheduler -------------------------------------------------
-# BORE is a core-criterion rewrite (sched/fair.c), always compiled in.
-ui_print " CPU SCHEDULER"
-ui_print " BORE (burst-aware wakeup preemption)"
-ui_print "   ACTIVE by default, nothing to switch"
-# POC Selector is capacity-class gated on big.LITTLE: the upstream
-# selector refuses to run on asymmetric CPU capacity, the backport
-# intersects the candidate mask with the target's capacity class so it
-# is safe here. /sys/kernel/poc_selector/status/ is created by
-# sched_poc_status_init(); the tunables are /proc/sys/kernel/sched_poc_*.
-ui_print " POC Selector v2.6.3 (pick_idle_cpu replacement)"
-ui_print "   ACTIVE by default, capacity-class gated"
-ui_print "   status /sys/kernel/poc_selector/status/"
-ui_print "   tune   /proc/sys/kernel/sched_poc_*"
-ui_print "   off    echo 0 > /proc/sys/kernel/sched_poc_selector"
-# --- CPU frequency -------------------------------------------------
-# CONFIG_CPU_FREQ_DEFAULT_GOV_REFLEX=y in every defconfig, so reflex is
-# cpufreq_default_governor(); the tunables live in
-# /sys/devices/system/cpu/cpufreq/policy*/reflex/. Qualcomm's powerHAL
-# rewrites scaling_governor at runtime, so it may show schedutil later.
-ui_print " CPU FREQUENCY"
-ui_print " Reflex v0.4.0 cpufreq governor"
-ui_print "   ACTIVE by default (was schedutil)"
-ui_print "   verify /sys/devices/system/cpu/cpufreq/policy0/"
-ui_print "     scaling_governor -> reflex"
-ui_print "     reflex/version   -> 0.4.0"
-ui_print "   powerHAL can switch governor at runtime;"
-ui_print "   switch back:"
-ui_print "     echo reflex > /sys/devices/system/cpu/cpufreq/"
-ui_print "     policy0/scaling_governor"
-# --- I/O ------------------------------------------------------------
-# ADIOS is the queue default: block/Kconfig.iosched's "Default I/O
-# scheduler" choice defaults to DEFAULT_CFQ, so CONFIG_DEFAULT_ADIOS=y
-# in the defconfig is what makes DEFAULT_IOSCHED resolve to "adios".
-# With only CONFIG_IOSCHED_ADIOS=y the object is built and CFQ still
-# wins -- that is the trap this line documents.
-ui_print " I/O SCHEDULER"
-ui_print " ADIOS adaptive deadline"
-ui_print "   ACTIVE by default (CONFIG_DEFAULT_ADIOS=y)"
-ui_print "   verify: cat /sys/block/sda/queue/scheduler"
-ui_print "   switch: echo adios > /sys/block/sd*/queue/scheduler"
-ui_print "   also built in: noop deadline cfq maple anxiety"
-ui_print "     zen tripndroid fiops sio"
-# --- Memory ---------------------------------------------------------
-ui_print " MEMORY"
-ui_print " MGLRU multi-gen LRU"
-ui_print "   ACTIVE (/sys/kernel/mm/lru_gen/enabled)"
-# --- Network / compression -----------------------------------------
-ui_print " NETWORK"
-ui_print " BBRv3 TCP congestion control"
-ui_print "   ACTIVE by default (bbr v1 also present)"
-ui_print " LZ4 zram compressor"
-ui_print "   ACTIVE by default (comp_algorithm: lz4 lzo ...)"
-# --- Root and the rest ---------------------------------------------
-ui_print " ROOT / SECURITY"
-ui_print " BakaSU + SUSFS + NoMount + BBG"
-ui_print " + DroidSpaces + ReKernel + NTSYNC"
-ui_print " NTSYNC /dev/ntsync (Wine / emulator sync)"
-# --- Footer hints ---------------------------------------------------
-ui_print "----------------------------------------------------"
-ui_print " CHECK  sysctl net.ipv4.tcp_congestion_control"
-ui_print "        expect bbr3"
-ui_print " REVERT echo cubic > /proc/sys/net/ipv4/"
-ui_print "        tcp_congestion_control"
-ui_print "===================================================="
+# The variant line is deliberate: the NSE / SE / DYNAMIC zips differ only in
+# the fstab node of the appended DTB, so a user reporting a bootloop can name
+# the variant instead of guessing from the filename. __VARIANT__ is
+# substituted by CI.
+# ro.product.device is printed rather than hardcoded so the screen always
+# shows what the running ROM actually reports -- that is the value you need
+# when a new device has to be added to device.name1-6 above.
+ui_print "--------------------------------------------------------"
+ui_print " BakaSU Kernel 4.9.337 (CAF) Xiaomi SDM845"
+ui_print " Device $(getprop ro.product.device)"
+ui_print " Variant __VARIANT__"
+ui_print "--------------------------------------------------------"
+ui_print " BORE         active"
+ui_print " POC Selector active"
+ui_print " Reflex       active*"
+ui_print " ADIOS        active*"
+ui_print " MGLRU        active"
+ui_print " BBRv3        active"
+ui_print " LZ4          active"
+ui_print "--------------------------------------------------------"
+# Footnote for the two starred rows above. Reflex is
+# CONFIG_CPU_FREQ_DEFAULT_GOV_REFLEX=y and ADIOS is CONFIG_DEFAULT_ADIOS=y,
+# so both are kernel defaults, but /vendor/etc/init/hw/init.qcom.power.rc
+# rewrites scaling_governor to schedutil on cpu0/cpu4 and
+# /vendor/etc/init/hw/init.qcom.rc rewrites sda/sdf to cfq at every boot.
+# On a stock vendor image the runtime value is therefore not guaranteed.
+ui_print " * Reflex/ADIOS kernel default; vendor may override"
+# Root / security stack, kept on one line: all of it is compiled in and
+# needs no interaction at flash time.
+ui_print " + BakaSU SUSFS NoMount BBG DroidSpaces ReKernel NTSYNC"
+# Only hint that is actually needed after flashing.
+ui_print " Check sysctl net.ipv4.tcp_congestion_control"
+ui_print "--------------------------------------------------------"
 ## end properties
 
 dump_boot
