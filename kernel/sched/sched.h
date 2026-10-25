@@ -964,6 +964,17 @@ struct rq {
 	struct llist_head wake_list;
 #endif
 
+#ifdef CONFIG_SCHED_POC_SELECTOR
+	/*
+	 * POC Selector: set to 1 by the waker when it has already
+	 * cleared this CPU's bit in the LLC idle bitmap (see
+	 * poc_commit_selection()), so the do_idle() exit path can skip
+	 * the redundant atomic64_andnot on the shared cacheline.
+	 * struct rq is zero-allocated, hence the 0 default.
+	 */
+	unsigned int poc_idle_committed;
+#endif
+
 #ifdef CONFIG_CPU_IDLE
 	/* Must be inspected within a rcu lock section */
 	struct cpuidle_state *idle_state;
@@ -1966,6 +1977,71 @@ static inline unsigned long capacity_orig_of(int cpu)
 	return cpu_rq(cpu)->cpu_capacity_orig;
 }
 
+#ifdef CONFIG_SCHED_POC_SELECTOR
+/*
+ * sched_asym_cpucapacity - system has CPUs of different original capacity
+ *
+ * 4.9 does not track this (SD_ASYM_CPUCAPACITY was only ever consumed by
+ * the EAS code paths), so POC brings the 5.x+ system-wide static key with
+ * it.  It is enabled by update_top_cache_domain() whenever any CPU has an
+ * SD_ASYM_CPUCAPACITY domain, mirroring upstream's semantics.
+ */
+extern struct static_key_false sched_asym_cpucapacity;
+
+static inline bool sched_asym_cpucap_active(void)
+{
+	return static_branch_unlikely(&sched_asym_cpucapacity);
+}
+
+/*
+ * 4.9 port of upstream util_fits_cpu() / asym_fits_cpu().
+ *
+ * Upstream's util_fits_cpu() relies on fits_capacity(), uclamp_is_used()
+ * and arch_scale_thermal_pressure(), none of which exist in 4.9, so the
+ * check is reduced to the capacity_orig_of() comparisons upstream applies
+ * to the uclamp band.  Semantics preserved:
+ *   - a task always fits when uclamp_max <= capacity_orig (capped),
+ *   - otherwise it must fit the CPU's original capacity,
+ *   - a uclamp_min-boosted task is reported as fully fitting.
+ */
+static inline int util_fits_cpu(unsigned long util,
+				unsigned long uclamp_min,
+				unsigned long uclamp_max,
+				int cpu)
+{
+	unsigned long capacity_orig = capacity_orig_of(cpu);
+	bool fits, uclamp_max_fits;
+
+	fits = util < capacity_orig;
+
+	uclamp_max_fits = (capacity_orig == SCHED_CAPACITY_SCALE) &&
+			  (uclamp_max == SCHED_CAPACITY_SCALE);
+	uclamp_max_fits = !uclamp_max_fits && (uclamp_max <= capacity_orig);
+	fits = fits || uclamp_max_fits;
+
+	if (fits && (util < min(uclamp_min, uclamp_max)))
+		return 1;
+
+	return fits;
+}
+
+static inline bool asym_fits_cpu(unsigned long util,
+				 unsigned long util_min,
+				 unsigned long util_max,
+				 int cpu)
+{
+	if (sched_asym_cpucap_active())
+		/*
+		 * Return true only if the cpu fully fits the task
+		 * requirements which include the utilization and the
+		 * performance hints.
+		 */
+		return (util_fits_cpu(util, util_min, util_max, cpu) > 0);
+
+	return true;
+}
+#endif /* CONFIG_SCHED_POC_SELECTOR */
+
 extern unsigned int walt_disabled;
 
 static inline unsigned long task_util(struct task_struct *p)
@@ -1977,6 +2053,121 @@ static inline unsigned long task_util(struct task_struct *p)
 #endif
 	return p->se.avg.util_avg;
 }
+
+#ifdef CONFIG_SCHED_POC_SELECTOR
+extern struct static_key_true poc_selector_active;
+extern struct static_key_true sched_poc_aligned;
+extern struct static_key_true sched_poc_smt_consecutive;
+extern struct static_key_true sched_poc_smt_uniform;
+extern struct static_key_false sched_poc_target_sticky;
+extern struct static_key_true sched_poc_packed;
+extern struct static_key_false sched_poc_lockless_bitmap;
+
+/*
+ * 4.9 has no CONFIG_SCHED_CLASS_EXT (kernel/sched/ext.c), so the scx
+ * side of the upstream hook is dropped: poc_notify_scx() is gone and
+ * poc_check_skip_fallback() is the no-op upstream already provides for
+ * the !CONFIG_SCHED_CLASS_EXT build.
+ */
+static inline void poc_check_skip_fallback(void) {}
+
+extern void __set_cpu_idle_state_poc(int cpu, int state);
+static __always_inline void set_cpu_idle_state_poc(int cpu, int state)
+{
+	if (static_branch_likely(&poc_selector_active) &&
+	    !sched_asym_cpucap_active())
+		__set_cpu_idle_state_poc(cpu, state);
+}
+
+/*
+ * POC_CTZ64 - Count trailing zeros (find first set bit)
+ *
+ * Architecture-optimized CTZ for POC idle CPU selection.
+ * Returns 64 for input 0 (important for BSF-based implementations).
+ */
+#if defined(__x86_64__) && defined(__BMI__)
+/* Tier 1: x86-64 with BMI1 - TZCNT is zero-safe */
+#define POC_CTZ64(v) ((int)__builtin_ctzll(v))
+
+#elif defined(__aarch64__)
+/* Tier 1: ARM64 - RBIT+CLZ is zero-safe */
+#define POC_CTZ64(v) ((int)__builtin_ctzll(v))
+
+#elif defined(__riscv) && defined(__riscv_zbb)
+/* Tier 1: RISC-V with Zbb - CTZ is zero-safe */
+#define POC_CTZ64(v) ((int)__builtin_ctzll(v))
+
+#elif defined(__x86_64__)
+/* Tier 2: x86-64 without BMI1 - BSF needs zero check */
+static __always_inline int poc_ctz64_bsf(u64 v)
+{
+	if (unlikely(!v))
+		return 64;
+	return (int)__builtin_ctzll(v);
+}
+#define POC_CTZ64(v) poc_ctz64_bsf(v)
+
+#else
+/* Tier 3: De Bruijn fallback for other architectures */
+#define POC_DEBRUIJN_CTZ64_CONST 0x03F79D71B4CA8B09ULL
+static const u8 poc_debruijn_ctz64_tab[64] = {
+	 0,  1, 56,  2, 57, 49, 28,  3,
+	61, 58, 42, 50, 38, 29, 17,  4,
+	62, 47, 59, 36, 45, 43, 51, 22,
+	53, 39, 33, 30, 24, 18, 12,  5,
+	63, 55, 48, 27, 60, 41, 37, 16,
+	46, 35, 44, 21, 52, 32, 23, 11,
+	54, 26, 40, 15, 34, 20, 31, 10,
+	25, 14, 19,  9, 13,  8,  7,  6,
+};
+static __always_inline int poc_debruijn_ctz64(u64 v)
+{
+	u64 lsb;
+	u32 idx;
+
+	if (unlikely(!v))
+		return 64;
+	lsb = v & (-(s64)v);
+	idx = (u32)((lsb * POC_DEBRUIJN_CTZ64_CONST) >> 58);
+	return (int)poc_debruijn_ctz64_tab[idx & 63];
+}
+#define POC_CTZ64(v) poc_debruijn_ctz64(v)
+
+#endif /* POC_CTZ64 */
+
+/*
+ * POC helper: convert cpumask region to POC-relative u64
+ *
+ * Extracts the 64-bit region of @mask corresponding to this LLC's
+ * CPU range and shifts it to align with POC's bit positions.
+ *
+ * Used by load balancer functions that need to intersect cpumasks
+ * with POC idle bitmaps.
+ */
+static __always_inline u64 poc_cpumask_to_u64(const struct cpumask *mask,
+				      struct sched_domain_shared *sd_share)
+{
+	int base = sd_share->poc_cpu_base;
+	int base_word = base >> 6;
+	int shift = sd_share->poc_affinity_shift;
+
+	if (likely(shift == 0)) {
+		/*
+		 * Fast path: this LLC's own base is 64-aligned, so no
+		 * cross-word shift is needed here even if some other LLC
+		 * in the system is misaligned (sched_poc_aligned is a
+		 * single system-wide flag and must not gate this branch).
+		 */
+		return cpumask_bits(mask)[base_word];
+	} else {
+		/* Slow path: shift required (e.g., Threadripper) */
+		u64 lo = cpumask_bits(mask)[base_word];
+		u64 hi = (base_word + 1 < BITS_TO_LONGS(nr_cpumask_bits)) ?
+			 cpumask_bits(mask)[base_word + 1] : 0;
+		return (lo >> shift) | (hi << (64 - shift));
+	}
+}
+#endif /* CONFIG_SCHED_POC_SELECTOR */
 
 /*
  * cpu_util returns the amount of capacity of a CPU that is used by CFS
