@@ -1258,6 +1258,53 @@ struct sched_domain_shared {
 	atomic_t	ref;
 	atomic_t	nr_busy_cpus;
 	int		has_idle_cores;
+#ifdef CONFIG_SCHED_POC_SELECTOR
+	int		nr_idle_scan;
+	/*
+	 * POC Selector: per-LLC idle CPU tracking
+	 */
+	u64		poc_llc_members;	/* bitmask of valid CPUs (relative to base) */
+	int		poc_cpu_base;		/* smallest CPU ID in this LLC */
+	u8		poc_affinity_shift;	/* bit shift for cpumask alignment */
+	bool	poc_fast_eligible;	/* true when LLC CPU count <= 64 */
+	bool	poc_cluster_valid;	/* true when cluster mask is usable */
+#ifdef CONFIG_SCHED_SMT
+	u8		poc_smt_shift;		/* bit distance between SMT siblings */
+	u64		poc_primary_mask;	/* bitmask of core representative CPUs */
+#endif
+
+	/*
+	 * Hot write path: idle state flag arrays (lock-free mode).
+	 * Each array = exactly 1 cache line (64B).
+	 * Writers: WRITE_ONCE (plain MOV, no LOCK prefix).
+	 * Readers: snapshot to stack, then multiply-and-shift aggregation.
+	 * Active only when sched_poc_atomic_bitmap=0.
+	 */
+	u8		poc_idle_cpus[64] ____cacheline_aligned;
+#ifdef CONFIG_SCHED_SMT
+	u8		poc_idle_cores[64] ____cacheline_aligned;
+#endif /* CONFIG_SCHED_SMT */
+
+	/*
+	 * Hot read/write path: idle state bitmaps (bitmap mode, default).
+	 * Readers: single atomic64_read (MOV on x86).
+	 * Writers: atomic64_or / atomic64_andnot (LOCK'd on x86).
+	 * Active only when sched_poc_atomic_bitmap=1.
+	 */
+	atomic64_t	poc_idle_cpus_mask ____cacheline_aligned;
+#ifdef CONFIG_SCHED_SMT
+	atomic64_t	poc_idle_cores_mask ____cacheline_aligned;
+#endif /* CONFIG_SCHED_SMT */
+
+	/*
+	 * Read-only lookup tables (written once at init).
+	 * Cacheline-aligned for exact prefetch targeting.
+	 */
+	u64		poc_cluster_mask[64] ____cacheline_aligned;
+#ifdef CONFIG_SCHED_SMT
+	u64		poc_smt_mask[64] ____cacheline_aligned;
+#endif /* CONFIG_SCHED_SMT */
+#endif /* CONFIG_SCHED_POC_SELECTOR */
 };
 
 struct sched_domain {
@@ -1808,6 +1855,16 @@ struct task_struct {
 	struct task_struct *last_wakee;
 
 	int wake_cpu;
+#ifdef CONFIG_SCHED_POC_SELECTOR
+	/*
+	 * POC Selector: CPU this task ran on most recently, used as a
+	 * Level 1r candidate by select_idle_cpu_poc().  Only ever
+	 * written by the POC fast path in select_idle_sibling(), so the
+	 * stock 4.9 path is bit-identical when poc_selector_active is
+	 * off.  task_struct is zero-allocated, hence the 0 default.
+	 */
+	unsigned int recent_used_cpu;
+#endif
 #endif
 	int on_rq;
 
@@ -3067,10 +3124,43 @@ static inline int task_nice(const struct task_struct *p)
 extern int can_nice(const struct task_struct *p, const int nice);
 extern int task_curr(const struct task_struct *p);
 extern int idle_cpu(int cpu);
+
+#ifdef CONFIG_SCHED_POC_SELECTOR
+/*
+ * POC Selector shims (4.9 backport of the 6.18 interface).
+ *
+ * 4.9 has neither available_idle_cpu()/sched_idle_cpu() (split out of
+ * idle_cpu() in 5.7) nor sched_cluster_active() (CONFIG_SCHED_CLUSTER
+ * does not exist here), and cpus_share_resources() is a plain alias for
+ * cpus_share_cache() on this tree.  These wrappers keep the ported POC
+ * code identical to upstream while mapping onto the 4.9 primitives.
+ */
+static inline bool available_idle_cpu(int cpu)
+{
+	return idle_cpu(cpu) != 0;
+}
+
+static inline bool sched_idle_cpu(int cpu)
+{
+	return idle_cpu(cpu) != 0;
+}
+
+static inline bool cpus_share_resources(int cpu_a, int cpu_b)
+{
+	return cpus_share_cache(cpu_a, cpu_b);
+}
+
+/* No CONFIG_SCHED_CLUSTER on 4.9: never a cluster machine. */
+static inline bool sched_cluster_active(void)
+{
+	return false;
+}
+#endif /* CONFIG_SCHED_POC_SELECTOR */
+
 extern int sched_setscheduler(struct task_struct *, int,
 			      const struct sched_param *);
 extern int sched_setscheduler_nocheck(struct task_struct *, int,
-				      const struct sched_param *);
+			      const struct sched_param *);
 extern int sched_setattr(struct task_struct *,
 			 const struct sched_attr *);
 extern struct task_struct *idle_task(int cpu);

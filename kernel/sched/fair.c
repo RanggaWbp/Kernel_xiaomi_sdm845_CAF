@@ -30,6 +30,7 @@
 #include <linux/interrupt.h>
 #include <linux/mempolicy.h>
 #include <linux/migrate.h>
+#include <linux/prefetch.h>
 #include <linux/task_work.h>
 #include <linux/module.h>
 
@@ -757,7 +758,7 @@ static u64 sched_vslice(struct cfs_rq *cfs_rq, struct sched_entity *se)
 }
 
 #ifdef CONFIG_SMP
-static int select_idle_sibling(struct task_struct *p, int prev_cpu, int cpu);
+static int select_idle_sibling(struct task_struct *p, int prev_cpu, int cpu, int sync);
 static unsigned long task_h_load(struct task_struct *p);
 
 /*
@@ -1112,6 +1113,17 @@ update_stats_curr_start(struct cfs_rq *cfs_rq, struct sched_entity *se)
 /**************************************************
  * Scheduling class queueing methods:
  */
+
+#ifdef CONFIG_NUMA_BALANCING
+/*
+ * POC Selector backport: select_idle_sibling() gained a @sync argument.
+ * The prototype at the top of this file lives inside #ifdef CONFIG_SMP
+ * while the NUMA call site below does not, so repeat the declaration here
+ * to keep that call site properly prototyped.
+ */
+static int select_idle_sibling(struct task_struct *p, int prev_cpu, int cpu,
+			       int sync);
+#endif
 
 #ifdef CONFIG_NUMA_BALANCING
 /*
@@ -1698,7 +1710,7 @@ balance:
 		 */
 		local_irq_disable();
 		env->dst_cpu = select_idle_sibling(env->p, env->src_cpu,
-						   env->dst_cpu);
+						   env->dst_cpu, 0);
 		local_irq_enable();
 	}
 
@@ -6724,6 +6736,25 @@ static inline bool test_idle_cores(int cpu, bool def)
 	return def;
 }
 
+#ifdef CONFIG_SCHED_POC_SELECTOR
+/*
+ * Check if the entire core (all SMT siblings) containing @cpu is idle.
+ *
+ * POC Selector: 4.9 port of the 6.18 helper.  available_idle_cpu() and
+ * sched_idle_cpu() both collapse onto idle_cpu() on this tree.
+ */
+static inline bool is_idle_core(int cpu)
+{
+	int sibling;
+
+	for_each_cpu(sibling, cpu_smt_mask(cpu)) {
+		if (!available_idle_cpu(sibling))
+			return false;
+	}
+	return true;
+}
+#endif /* CONFIG_SCHED_POC_SELECTOR */
+
 /*
  * Scans the local SMT mask to see if the entire core is idle, and records this
  * information in sd_llc_shared->has_idle_cores.
@@ -6818,6 +6849,17 @@ static inline int select_idle_smt(struct task_struct *p, struct sched_domain *sd
 	return -1;
 }
 
+#ifdef CONFIG_SCHED_POC_SELECTOR
+/*
+ * POC Selector: 4.9 port of the 6.18 non-SMT is_idle_core() variant
+ * (a core is a CPU when SMT is disabled).
+ */
+static inline bool is_idle_core(int cpu)
+{
+	return (available_idle_cpu(cpu) || sched_idle_cpu(cpu));
+}
+#endif /* CONFIG_SCHED_POC_SELECTOR */
+
 #endif /* CONFIG_SCHED_SMT */
 
 /*
@@ -6866,7 +6908,10 @@ static int select_idle_cpu(struct task_struct *p, struct sched_domain *sd, int t
 /*
  * Try and locate an idle core/thread in the LLC cache domain.
  */
-static int select_idle_sibling(struct task_struct *p, int prev, int target)
+#ifdef CONFIG_SCHED_POC_SELECTOR
+#include "poc_selector.c"
+#endif
+static int select_idle_sibling(struct task_struct *p, int prev, int target, int sync)
 {
 	struct sched_domain *sd;
 	struct sched_group *sg;
@@ -6874,9 +6919,124 @@ static int select_idle_sibling(struct task_struct *p, int prev, int target)
 	int best_idle_cpu = -1;
 	int best_idle_cstate = INT_MAX;
 	unsigned long best_idle_capacity = ULONG_MAX;
+#ifdef CONFIG_SCHED_POC_SELECTOR
+	int recent_used_cpu = -1;
+#endif
 
 	schedstat_inc(p->se.statistics.nr_wakeups_sis_attempts);
 	schedstat_inc(this_rq()->eas_stats.sis_attempts);
+
+#ifdef CONFIG_SCHED_POC_SELECTOR
+	/*
+	 * POC Selector fast path (Piece-Of-Cake idle CPU selector v2.6.3).
+	 *
+	 * Everything below only runs when CONFIG_SCHED_POC_SELECTOR is set
+	 * and the poc_selector_active static key is on.  p->recent_used_cpu
+	 * is read and written exclusively here, so with the key off (or
+	 * the config unset) the stock 4.9 fallback path below is
+	 * bit-identical to the unpatched kernel.
+	 */
+	if (static_branch_likely(&poc_selector_active)) {
+		unsigned long poc_task_util = 0;
+		unsigned long poc_util_min = 0, poc_util_max = ULONG_MAX;
+
+		/*
+		 * Check a recently used CPU as a potential idle candidate
+		 * (upstream "Gate 4").  4.9 has no recent_used_cpu logic at
+		 * all, so POC owns the whole block.
+		 */
+		recent_used_cpu = p->recent_used_cpu;
+		p->recent_used_cpu = prev;
+
+		/*
+		 * sched_poc_early_select (default on): evaluate
+		 * recent_used_cpu and target for a fully idle core before
+		 * entering the POC bitmap search, matching upstream's
+		 * pre-POC gates.  When it is off, POC handles both
+		 * candidates itself (Level 1r / Level 1t).
+		 */
+		if (static_branch_unlikely(&sched_poc_early_select)) {
+			if (recent_used_cpu != prev &&
+			    recent_used_cpu != target &&
+			    cpus_share_cache(recent_used_cpu, target) &&
+			    (available_idle_cpu(recent_used_cpu) ||
+			     sched_idle_cpu(recent_used_cpu)) &&
+			    cpumask_test_cpu(recent_used_cpu,
+					     tsk_cpus_allowed(p)) &&
+			    (unsigned int)recent_used_cpu < nr_cpumask_bits &&
+			    is_idle_core(recent_used_cpu))
+				return recent_used_cpu;
+
+			/*
+			 * Fast-path the target CPU itself, avoiding the RCU
+			 * dereference and bitmap reads of the POC search.
+			 *
+			 * 4.9 backport deviation: upstream uses task_util_ue()
+			 * here, which does not exist on 4.9; task_util() plus
+			 * uclamp_eff_value() are used instead.
+			 */
+			if (sched_asym_cpucap_active()) {
+				poc_task_util = task_util(p);
+				poc_util_min = uclamp_eff_value(p, UCLAMP_MIN);
+				poc_util_max = uclamp_eff_value(p, UCLAMP_MAX);
+			}
+
+			if (is_idle_core(target) &&
+			    asym_fits_cpu(poc_task_util, poc_util_min,
+					  poc_util_max, target))
+				return target;
+		}
+
+		/*
+		 * POC does no capacity-aware placement, so it only takes
+		 * over on symmetric-capacity systems (upstream behaviour).
+		 */
+		if (!sched_asym_cpucap_active()) {
+			struct sched_domain_shared *sd_share =
+				rcu_dereference(per_cpu(sd_llc_shared, target));
+
+			if (sd_share && likely(sd_share->poc_fast_eligible)) {
+				int poc_cpu = select_idle_cpu_poc(target, prev,
+						recent_used_cpu, sync,
+						sd_share,
+						tsk_cpus_allowed(p));
+
+				if (poc_cpu >= 0)
+					return poc_cpu;
+
+				/*
+				 * POC returns -2 when the SIS_UTIL overload
+				 * gate fires (smt_fallback=0 only).  POC has
+				 * already checked prev's SMT sibling (Level 4)
+				 * and decided broader search is not worthwhile.
+				 * CFS would reach the same conclusion, so skip
+				 * select_idle_smt/select_idle_cpu.
+				 *
+				 * POC returns -1 for Level 0 saturation (no idle
+				 * CPUs in bitmap), but CFS may still find
+				 * sched_idle CPUs, so we must NOT skip CFS in
+				 * that case.
+				 */
+				if (poc_cpu == -2)
+					goto give_up;
+			} else {
+				/*
+				 * poc_selector_active is off — POC is either
+				 * disabled by sysctl or suppressed while scx
+				 * is running.  If an scx scheduler called us,
+				 * flip poc_selector_skip and schedule a
+				 * workqueue item to re-enable POC with bitmap
+				 * resync.  (No-op without CONFIG_SCHED_CLASS_EXT.)
+				 */
+				poc_check_skip_fallback();
+			}
+		} else {
+			poc_check_skip_fallback();
+		}
+
+		poc_count(POC_FALLBACK);
+	}
+#endif /* CONFIG_SCHED_POC_SELECTOR */
 
 	if (!sysctl_sched_cstate_aware) {
 		if (idle_cpu(target)) {
@@ -6970,6 +7130,18 @@ next:
 done:
 	schedstat_inc(p->se.statistics.nr_wakeups_sis_count);
 	schedstat_inc(this_rq()->eas_stats.sis_count);
+
+#ifdef CONFIG_SCHED_POC_SELECTOR
+give_up:
+	/*
+	 * Last resort (POC): avoid enqueuing behind an RT/DL task running
+	 * on the target CPU when the previous CPU is not running one.
+	 */
+	if (static_branch_likely(&poc_selector_active) &&
+	    rt_task(cpu_rq(target)->curr) &&
+	    prev != target && !rt_task(cpu_rq(prev)->curr))
+		return prev;
+#endif
 
 	return target;
 }
@@ -7834,7 +8006,7 @@ select_task_rq_fair(struct task_struct *p, int prev_cpu, int sd_flag, int wake_f
 
 	if (!sd) {
 		if (sd_flag & SD_BALANCE_WAKE) /* XXX always ? */
-			new_cpu = select_idle_sibling(p, prev_cpu, new_cpu);
+			new_cpu = select_idle_sibling(p, prev_cpu, new_cpu, sync);
 
 	} else {
 		new_cpu = find_idlest_cpu(sd, p, cpu, prev_cpu, sd_flag);
