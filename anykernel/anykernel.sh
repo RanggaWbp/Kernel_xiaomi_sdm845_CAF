@@ -62,24 +62,98 @@ PATCH_VBMETA_FLAG=auto;
 . tools/ak3-core.sh
 
 ## begin properties
-ui_print "  Kernel for Xiaomi SDM845 (CAF 4.9.337)"
-ui_print "  by RanggaWbp"
-# The only difference between the NSE / SE / DYNAMIC zips is the fstab node in
-# the appended DTB, so print it here: a user who reports a bootloop can say
-# which variant was flashed without guessing from the filename.
-ui_print "  Variant: __VARIANT__ (NSE = no /system_ext, SE = /system_ext on cust, DYNAMIC = super/logical)"
-
-# Print the codename here as well. do_devicecheck() above already reports a
-# match, but it only prints on success and prints nothing on the no-check path;
-# this always shows what ro.product.device actually reports, which is what you
-# want when a new device has to be added to device.name1-6 above.
-ui_print "  Device: $(getprop ro.product.device 2>/dev/null)"
-ui_print "  BakaSU + SUSFS + NoMount + BBG + DroidSpaces + ReKernel + NTSYNC + BORE + ADIOS + MGLRU + LZ4 + BBRv3"
-ui_print "  NTSYNC: /dev/ntsync (Wine/emulator sync)"
-ui_print "  MGLRU: Multi-Gen LRU (sysfs /sys/kernel/mm/lru_gen/enabled)"
-ui_print "  LZ4: zram default compressor (comp_algorithm: lz4 lzo ...)"
-ui_print "  BBRv3: TCP congestion control, ACTIVE by default (bbr3 + bbr v1 both present)"
-ui_print "  BBRv3: check 'sysctl net.ipv4.tcp_congestion_control'; revert with cubic"
+# ====================================================================
+# Flash UI. Plain ASCII on purpose: only characters a minimal recovery
+# shell can print are used here, and every ui_print line below is kept
+# under 72 columns so nothing wraps on a phone screen.
+#
+# NOTE: no line below starts with a lowercase key=value. The property
+# parser above only reads the first six lines of this file, but a stray
+# lowercase key=value line is silently ignored at best and confusing at
+# worst -- keep the '=' characters inside quoted strings only.
+#
+# Status words, used consistently throughout:
+#   ACTIVE    = on by default, nothing to switch
+#   BUILT-IN  = compiled in, not selected by default
+#   OPTIONAL  = available, but only if the user switches to it
+# ====================================================================
+ui_print "===================================================="
+ui_print " BakaSU Kernel for Xiaomi SDM845 (CAF 4.9.337)"
+ui_print " by RanggaWbp"
+# The only difference between the NSE / SE / DYNAMIC zips is the fstab
+# node in the appended DTB, so print it here: a user who reports a
+# bootloop can say which variant was flashed without guessing from the
+# filename.
+ui_print " Variant: __VARIANT__"
+ui_print "   NSE     no /system_ext"
+ui_print "   SE      /system_ext on cust"
+ui_print "   DYNAMIC super / logical"
+# Print the codename here as well. do_devicecheck() above already reports
+# a match, but it only prints on success and prints nothing on the
+# no-check path; this always shows what ro.product.device actually
+# reports, which is what you want when a new device has to be added to
+# device.name1-6 above.
+ui_print " Device : $(getprop ro.product.device 2>/dev/null)"
+ui_print "----------------------------------------------------"
+# --- CPU scheduler -------------------------------------------------
+# BORE is a core-criterion rewrite (sched/fair.c), always compiled in.
+ui_print " CPU SCHEDULER"
+ui_print " BORE (burst-aware wakeup preemption)"
+ui_print "   ACTIVE by default, nothing to switch"
+# POC Selector is capacity-class gated on big.LITTLE: the upstream
+# selector refuses to run on asymmetric CPU capacity, the backport
+# intersects the candidate mask with the target's capacity class so it
+# is safe here. /sys/kernel/poc_selector/status/ is created by
+# sched_poc_status_init(); the tunables are /proc/sys/kernel/sched_poc_*.
+ui_print " POC Selector v2.6.3 (pick_idle_cpu replacement)"
+ui_print "   ACTIVE by default, capacity-class gated"
+ui_print "   status /sys/kernel/poc_selector/status/"
+ui_print "   tune   /proc/sys/kernel/sched_poc_*"
+ui_print "   off    echo 0 > /proc/sys/kernel/sched_poc_selector"
+# --- CPU frequency -------------------------------------------------
+# CONFIG_CPU_FREQ_DEFAULT_GOV_REFLEX=y in every defconfig, so reflex is
+# cpufreq_default_governor(); the tunables live in
+# /sys/devices/system/cpu/cpufreq/policy*/reflex/. Qualcomm's powerHAL
+# rewrites scaling_governor at runtime, so it may show schedutil later.
+ui_print " CPU FREQUENCY"
+ui_print " Reflex v0.4.0 cpufreq governor"
+ui_print "   ACTIVE by default (was schedutil)"
+ui_print "   verify /sys/devices/system/cpu/cpufreq/policy0/"
+ui_print "     scaling_governor -> reflex"
+ui_print "     reflex/version   -> 0.4.0"
+ui_print "   powerHAL can switch governor at runtime;"
+ui_print "   switch back:"
+ui_print "     echo reflex > /sys/devices/system/cpu/cpufreq/"
+ui_print "     policy0/scaling_governor"
+# --- I/O ------------------------------------------------------------
+# ADIOS is built in (=y) but is NOT the queue default; 4.9 has no
+# CONFIG_DEFAULT_IOSCHED, so mq-deadline stays the default unless the
+# user selects it per device.
+ui_print " I/O SCHEDULER"
+ui_print " MGLRU multi-gen LRU"
+ui_print "   ACTIVE (/sys/kernel/mm/lru_gen/enabled)"
+ui_print " ADIOS"
+ui_print "   BUILT-IN, not the queue default, select it with:"
+ui_print "     echo adios > /sys/block/sd*/queue/scheduler"
+ui_print "   OPTIONAL: mq-deadline (default), noop, cfq, bfq"
+# --- Network / compression -----------------------------------------
+ui_print " NETWORK"
+ui_print " BBRv3 TCP congestion control"
+ui_print "   ACTIVE by default (bbr v1 also present)"
+ui_print " LZ4 zram compressor"
+ui_print "   ACTIVE by default (comp_algorithm: lz4 lzo ...)"
+# --- Root and the rest ---------------------------------------------
+ui_print " ROOT / SECURITY"
+ui_print " BakaSU + SUSFS + NoMount + BBG"
+ui_print " + DroidSpaces + ReKernel + NTSYNC"
+ui_print " NTSYNC /dev/ntsync (Wine / emulator sync)"
+# --- Footer hints ---------------------------------------------------
+ui_print "----------------------------------------------------"
+ui_print " CHECK  sysctl net.ipv4.tcp_congestion_control"
+ui_print "        expect bbr3"
+ui_print " REVERT echo cubic > /proc/sys/net/ipv4/"
+ui_print "        tcp_congestion_control"
+ui_print "===================================================="
 ## end properties
 
 dump_boot
