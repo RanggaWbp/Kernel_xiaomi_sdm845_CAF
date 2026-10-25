@@ -7036,8 +7036,6 @@ static int select_idle_sibling(struct task_struct *p, int prev, int target, int 
 				 */
 				poc_check_skip_fallback();
 			}
-		} else {
-			poc_check_skip_fallback();
 		}
 
 		poc_count(POC_FALLBACK);
