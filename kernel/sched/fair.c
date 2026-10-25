@@ -6977,8 +6977,10 @@ static int select_idle_sibling(struct task_struct *p, int prev, int target, int 
 			 */
 			if (sched_asym_cpucap_active()) {
 				poc_task_util = task_util(p);
+#ifdef CONFIG_UCLAMP_TASK
 				poc_util_min = uclamp_eff_value(p, UCLAMP_MIN);
 				poc_util_max = uclamp_eff_value(p, UCLAMP_MAX);
+#endif
 			}
 
 			if (is_idle_core(target) &&
