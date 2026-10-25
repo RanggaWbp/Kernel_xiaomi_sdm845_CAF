@@ -232,6 +232,7 @@ jobs:
           # object check below is what proves it actually compiled in.
           check_symbol "CONFIG_SCHED_POC_SELECTOR" "y"
           check_symbol "CONFIG_CPU_FREQ_GOV_REFLEX" "y"
+          check_symbol "CONFIG_CPU_FREQ_DEFAULT_GOV_REFLEX" "y"
           if [ $failures -gt 0 ]; then
             echo "Config validation failed with $failures errors"
             exit 1
