@@ -6990,10 +6990,14 @@ static int select_idle_sibling(struct task_struct *p, int prev, int target, int 
 		}
 
 		/*
-		 * POC does no capacity-aware placement, so it only takes
-		 * over on symmetric-capacity systems (upstream behaviour).
+		 * POC takes over on symmetric and asymmetric systems
+		 * alike: select_idle_cpu_poc() intersects its candidate
+		 * mask with the target's capacity-class mask, so on a
+		 * big.LITTLE system it only ever offers a core of the
+		 * same capacity as the target (upstream instead bails
+		 * out on any asymmetry).
 		 */
-		if (!sched_asym_cpucap_active()) {
+		{
 			struct sched_domain_shared *sd_share =
 				rcu_dereference(per_cpu(sd_llc_shared, target));
 

@@ -7578,6 +7578,55 @@ static void update_top_cache_domain(int cpu)
 	 */
 	if (highest_flag_domain(cpu, SD_ASYM_CPUCAPACITY))
 		static_branch_enable(&sched_asym_cpucapacity);
+
+	/*
+	 * Rebuild the per-LLC capacity-class masks.  This runs at the end
+	 * of cpu_attach_domain(), i.e. after build_sched_domains() has
+	 * already run init_sched_groups_capacity(), so every CPU's
+	 * cpu_capacity_orig is final by the time we read it.  It is
+	 * re-run on every domain re-attach (boot, hotplug), which is the
+	 * same cadence as the rest of POC's per-LLC tables.
+	 */
+	{
+		struct sched_domain_shared *cap_share =
+			rcu_dereference(per_cpu(sd_llc_shared, cpu));
+
+		if (cap_share && cap_share->poc_fast_eligible) {
+			int a;
+			int b;
+
+			for_each_cpu(a, sched_domain_span(
+					rcu_dereference(per_cpu(sd_llc, cpu)))) {
+				int bit_a = a - cap_share->poc_cpu_base;
+				unsigned long cap_a;
+				u64 same = 0;
+
+				if (bit_a < 0 || bit_a >= 64)
+					continue;
+
+				cap_a = capacity_orig_of(a);
+
+				for_each_cpu(b, sched_domain_span(
+					rcu_dereference(per_cpu(sd_llc, cpu)))) {
+					int bit_b = b - cap_share->poc_cpu_base;
+
+					if (bit_b < 0 || bit_b >= 64)
+						continue;
+					if (capacity_orig_of(b) == cap_a)
+						same |= 1ULL << bit_b;
+				}
+
+				/*
+				 * A class mask of zero would make POC report
+				 * "no idle CPU" and fall back to CFS forever,
+				 * so fall back to the whole LLC rather than
+				 * trusting a half-built capacity table.
+				 */
+				cap_share->poc_capacity_mask[bit_a] =
+					same ? same : cap_share->poc_llc_members;
+			}
+		}
+	}
 #endif
 }
 

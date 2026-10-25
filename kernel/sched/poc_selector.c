@@ -618,7 +618,9 @@ static __always_inline u64 poc_idle_core_mask(u64 cpu_mask,
  * selected by sched_poc_lockless_bitmap.
  *
  * Caller (inline wrapper in sched.h) ensures poc_selector_active is on
- * and sched_asym_cpucap_active() is false before calling here.
+ * before calling here.  Unlike upstream there is no
+ * !sched_asym_cpucap_active() requirement: capacity-class gating in
+ * select_idle_cpu_poc() makes the selector safe on asymmetric systems.
  */
 void __set_cpu_idle_state_poc(int cpu, int state)
 {
@@ -1082,6 +1084,23 @@ static __always_inline int select_idle_cpu_poc(int target, int prev,
 		prefetch(&sd_share->poc_cluster_mask[tgt_bit]);
 
 	affinity = poc_cpumask_to_u64(allowed, sd_share);
+
+	/*
+	 * Capacity-class gating (4.9 backport addition).
+	 *
+	 * Upstream refuses to run at all when the system has asymmetric
+	 * CPU capacity, because POC's search ignores capacity entirely.
+	 * On a big.LITTLE machine the LLC usually spans both clusters, so
+	 * that would make the whole selector dead weight.  Instead, the
+	 * candidate mask is intersected with the target's capacity class,
+	 * which keeps the O(1) search and guarantees a heavy task is never
+	 * offered a smaller core.  On a symmetric system every entry of
+	 * poc_capacity_mask[] is the full LLC member mask, so this is a
+	 * no-op AND.
+	 */
+	if (POC_CPU_IN_LLC(tgt_bit))
+		affinity &= sd_share->poc_capacity_mask[tgt_bit];
+
 	cpu_mask = poc_idle_cpu_mask(affinity, sd_share);
 
 	/* Level 0: Saturation — no idle CPU */
@@ -1591,7 +1610,6 @@ static ssize_t active_show(struct kobject *kobj,
 			   struct kobj_attribute *attr, char *buf)
 {
 	bool active = static_branch_likely(&poc_selector_active) &&
-		      !sched_asym_cpucap_active() &&
 		      poc_check_all_llc_eligible();
 	return sysfs_emit(buf, "%d\n", active ? 1 : 0);
 }

@@ -1301,6 +1301,17 @@ struct sched_domain_shared {
 	 * Cacheline-aligned for exact prefetch targeting.
 	 */
 	u64		poc_cluster_mask[64] ____cacheline_aligned;
+	/*
+	 * Capacity-class gating: poc_capacity_mask[b] is the bitmask of the
+	 * LLC's CPUs whose original capacity equals that of CPU (base + b).
+	 * POC does no capacity-aware placement, so on a big.LITTLE system
+	 * the candidate mask is intersected with the target's class mask
+	 * and a heavy task is never offered a smaller core.  Rebuilt from
+	 * update_top_cache_domain(), which runs after the scheduler has
+	 * measured every CPU's capacity.  On a symmetric system every
+	 * entry is the full LLC member mask, so this costs one AND.
+	 */
+	u64		poc_capacity_mask[64] ____cacheline_aligned;
 #ifdef CONFIG_SCHED_SMT
 	u64		poc_smt_mask[64] ____cacheline_aligned;
 #endif /* CONFIG_SCHED_SMT */
