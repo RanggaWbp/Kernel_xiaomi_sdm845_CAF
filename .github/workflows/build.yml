@@ -326,6 +326,13 @@ jobs:
             cp -r AnyKernel3/* out/img/
             cp anykernel/anykernel.sh out/img/anykernel.sh
             sed -i "s/__VARIANT__/${VARIANT_UC}/g" out/img/anykernel.sh
+            # Same mechanism for the build date shown in the flash banner:
+            # the date the image was built, not the date it was flashed.
+            # UTC so the value does not depend on the runner's timezone.
+            sed -i "s|__BUILD_DATE__|$(date -u +%d.%m.%Y)|g" out/img/anykernel.sh
+            # if/then, not `grep -q ... && { }`: under `bash -e` the && form
+            # returns non-zero when the placeholder is correctly gone.
+            if grep -q "__BUILD_DATE__" out/img/anykernel.sh; then echo "ERROR: __BUILD_DATE__ not substituted"; exit 1; fi
             # kernel.string must stay shell-parseable: anykernel.sh is SOURCED by
             # update-binary, so parentheses in the value are a parse error
             # ("syntax error near unexpected token `('") and every flash dies with

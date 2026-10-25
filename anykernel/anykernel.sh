@@ -97,6 +97,13 @@ PATCH_VBMETA_FLAG=auto;
 #   - every line states a fact; nothing is a half-instruction
 ui_print "--------------------------------------------------------"
 ui_print " BakaSU Kernel 4.9.337 (CAF) Xiaomi SDM845"
+# Author and build date. __BUILD_DATE__ is substituted by
+# .github/workflows/build.yml (same mechanism as __VARIANT__) with the
+# date the image was actually built, so the banner identifies the build
+# and not the moment the zip happened to be flashed. On a hand-built
+# zip the placeholder survives and shows literally -- obvious, not
+# silent. Keep this line short: the date is d.m.yyyy, no spaces.
+ui_print " by RanggaWbp __BUILD_DATE__"
 ui_print " Device $(getprop ro.product.device)"
 ui_print " Variant __VARIANT__"
 ui_print "--------------------------------------------------------"
