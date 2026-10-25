@@ -2059,7 +2059,7 @@ extern struct static_key_true poc_selector_active;
 extern struct static_key_true sched_poc_aligned;
 extern struct static_key_true sched_poc_smt_consecutive;
 extern struct static_key_true sched_poc_smt_uniform;
-extern struct static_key_false sched_poc_target_sticky;
+extern struct static_key_true sched_poc_target_sticky;
 extern struct static_key_true sched_poc_packed;
 extern struct static_key_false sched_poc_lockless_bitmap;
 
