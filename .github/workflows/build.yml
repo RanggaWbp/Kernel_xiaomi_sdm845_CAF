@@ -267,10 +267,13 @@ jobs:
           # $(objtree)/usr/include/linux/unistd.h to be absent, so we make
           # out/usr/include a file: the gate's wildcard then matches nothing,
           # the nested headers_install cannot create the directory, and
-          # upstream takes its own documented path. out/usr itself stays a
-          # directory because usr/Makefile builds gen_init_cpio and
-          # initramfs_data.o there.
-          : > out/usr/include
+          # upstream takes its own documented path. out/usr itself must be a
+          # real directory, because usr/Makefile builds gen_init_cpio and
+          # initramfs_data.o there -- and it does not exist yet at this point,
+          # since only the kernel build creates it, so it has to be made
+          # first. A bare `: > out/usr/include` fails with "No such file or
+          # directory" and kills the step before make ever runs.
+          mkdir -p out/usr && : > out/usr/include
           # Capture build stdout: BakaSU kernel/Kbuild prints its own version
           # banner via $(info ...). Grep that instead of recomputing from the
           # submodule, so Kbuild stays the single source of truth.
