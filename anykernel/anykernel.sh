@@ -87,6 +87,14 @@ PATCH_VBMETA_FLAG=auto;
 # ro.product.device is printed rather than hardcoded so the screen always
 # shows what the running ROM actually reports -- that is the value you need
 # when a new device has to be added to device.name1-6 above.
+# Layout rules, applied to every line below:
+#   - one separator character, one width (56), used for all four rules
+#   - every content line starts with exactly one space
+#   - in the feature list the name is padded to 12 columns, so the status
+#     always begins at column 15 regardless of how long the name is
+#   - one footnote marker (*) and it is used for exactly two rows
+#   - no line exceeds 56 columns, so nothing wraps on a phone screen
+#   - every line states a fact; nothing is a half-instruction
 ui_print "--------------------------------------------------------"
 ui_print " BakaSU Kernel 4.9.337 (CAF) Xiaomi SDM845"
 ui_print " Device $(getprop ro.product.device)"
@@ -94,24 +102,19 @@ ui_print " Variant __VARIANT__"
 ui_print "--------------------------------------------------------"
 ui_print " BORE         active"
 ui_print " POC Selector active"
-ui_print " Reflex       active*"
-ui_print " ADIOS        active*"
 ui_print " MGLRU        active"
 ui_print " BBRv3        active"
 ui_print " LZ4          active"
+ui_print " Reflex       active *"
+ui_print " ADIOS        active *"
 ui_print "--------------------------------------------------------"
-# Footnote for the two starred rows above. Reflex is
-# CONFIG_CPU_FREQ_DEFAULT_GOV_REFLEX=y and ADIOS is CONFIG_DEFAULT_ADIOS=y,
-# so both are kernel defaults, but /vendor/etc/init/hw/init.qcom.power.rc
-# rewrites scaling_governor to schedutil on cpu0/cpu4 and
-# /vendor/etc/init/hw/init.qcom.rc rewrites sda/sdf to cfq at every boot.
+# The two starred rows are kernel defaults (CONFIG_CPU_FREQ_DEFAULT_GOV_REFLEX,
+# CONFIG_DEFAULT_ADIOS) but /vendor/etc/init/hw/init.qcom.power.rc rewrites
+# scaling_governor to schedutil on cpu0/cpu4, and
+# /vendor/etc/init/hw/init.qcom.rc rewrites sda/sdf to cfq, at every boot.
 # On a stock vendor image the runtime value is therefore not guaranteed.
-ui_print " * Reflex/ADIOS kernel default; vendor may override"
-# Root / security stack, kept on one line: all of it is compiled in and
-# needs no interaction at flash time.
-ui_print " + BakaSU SUSFS NoMount BBG DroidSpaces ReKernel NTSYNC"
-# Only hint that is actually needed after flashing.
-ui_print " Check sysctl net.ipv4.tcp_congestion_control"
+ui_print " * kernel default; vendor init may override"
+ui_print " tcp_congestion_control: bbr3"
 ui_print "--------------------------------------------------------"
 ## end properties
 
