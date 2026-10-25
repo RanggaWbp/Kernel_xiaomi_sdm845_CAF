@@ -8213,6 +8213,7 @@ sd_init(struct sched_domain_topology_level *tl,
 		atomic_set(&sd->shared->nr_busy_cpus, sd_weight);
 
 #ifdef CONFIG_SCHED_POC_SELECTOR
+		{
 		/*
 		 * POC Selector per-LLC bookkeeping.
 		 *
@@ -8231,13 +8232,9 @@ sd_init(struct sched_domain_topology_level *tl,
 		int range = 0;
 		int last_cpu = sd_id;
 		int cpu_iter;
-		u64 members = 0;
-		u64 primary_mask = 0;
-		bool all_2way = true;
-		bool all_consecutive = true;
-		int uniform_stride = -1;
-#ifdef CONFIG_SCHED_SMT
 		int bit;
+		u64 members = 0;
+#ifdef CONFIG_SCHED_SMT
 		int sibling;
 		int sib_bit;
 		int ways;
@@ -8245,6 +8242,10 @@ sd_init(struct sched_domain_topology_level *tl,
 		int hi;
 		int stride;
 		u64 mask = 0;
+		bool all_2way = true;
+		bool all_consecutive = true;
+		int uniform_stride = -1;
+		u64 primary_mask = 0;
 #endif
 
 		for_each_cpu(cpu_iter, sched_domain_span(sd)) {
@@ -8412,6 +8413,7 @@ sd_init(struct sched_domain_topology_level *tl,
 		 * (always false here) and poc_cluster_valid keep the POC
 		 * Level 2/5 cluster search disabled at run time.
 		 */
+		} /* POC Selector per-LLC bookkeeping */
 #endif /* CONFIG_SCHED_POC_SELECTOR */
 	}
 
