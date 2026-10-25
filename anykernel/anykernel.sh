@@ -90,11 +90,11 @@ PATCH_VBMETA_FLAG=auto;
 # Layout rules, applied to every line below:
 #   - one separator character, one width (56), used for all four rules
 #   - every content line starts with exactly one space
-#   - in the feature list the name is padded to 12 columns, so the status
-#     always begins at column 15 regardless of how long the name is
-#   - one footnote marker (*) and it is used for exactly two rows
+#   - the feature name is padded to 12 columns, so the description always
+#     begins at column 15 regardless of how long the name is
 #   - no line exceeds 56 columns, so nothing wraps on a phone screen
-#   - every line states a fact; nothing is a half-instruction
+#   - every row says what the feature DOES, not that it exists: all of
+#     them are compiled in, so a status column would carry no information
 ui_print "--------------------------------------------------------"
 ui_print " BakaSU Kernel 4.9.337 (CAF) Xiaomi SDM845"
 # Author and build date. __BUILD_DATE__ is substituted by
@@ -107,20 +107,27 @@ ui_print " by RanggaWbp __BUILD_DATE__"
 ui_print " Device $(getprop ro.product.device)"
 ui_print " Variant __VARIANT__"
 ui_print "--------------------------------------------------------"
-ui_print " BORE         active"
-ui_print " POC Selector active"
-ui_print " MGLRU        active"
-ui_print " BBRv3        active"
-ui_print " LZ4          active"
-ui_print " Reflex       active *"
-ui_print " ADIOS        active *"
+ui_print " BORE         scheduler latency, burst wakeups"
+ui_print " POC Selector idle CPU picker"
+ui_print " Reflex       CPU frequency governor"
+ui_print " MGLRU        multigen page reclaim"
+ui_print " BBRv3        TCP congestion control"
+ui_print " LZ4          kernel compression"
+ui_print " ADIOS        I/O scheduler"
+ui_print " BakaSU       kernel root manager"
+ui_print " SUSFS        hides root from detection"
+ui_print " NoMount      hides /proc mounts"
+ui_print " BBG          baseband memory guard"
+ui_print " DroidSpaces  app sandbox containers"
+ui_print " ReKernel     sysctl tuner helper"
+ui_print " NTSYNC       nt sync driver"
 ui_print "--------------------------------------------------------"
-# The two starred rows are kernel defaults (CONFIG_CPU_FREQ_DEFAULT_GOV_REFLEX,
+# Reflex and ADIOS are kernel defaults (CONFIG_CPU_FREQ_DEFAULT_GOV_REFLEX,
 # CONFIG_DEFAULT_ADIOS) but /vendor/etc/init/hw/init.qcom.power.rc rewrites
 # scaling_governor to schedutil on cpu0/cpu4, and
 # /vendor/etc/init/hw/init.qcom.rc rewrites sda/sdf to cfq, at every boot.
 # On a stock vendor image the runtime value is therefore not guaranteed.
-ui_print " * kernel default; vendor init may override"
+ui_print " Reflex/ADIOS are kernel defaults; vendor may override"
 ui_print " tcp_congestion_control: bbr3"
 ui_print "--------------------------------------------------------"
 ## end properties
