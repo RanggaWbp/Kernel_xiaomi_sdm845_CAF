@@ -323,7 +323,7 @@ jobs:
             # TWRP ERROR 1 before the script runs. Dash only, no brackets.
             sed -i "s/kernel.string=.*/kernel.string=BakaSU Kernel ${BRANCH} for ${{ matrix.device }} - ${VARIANT_UC}/" out/img/anykernel.sh
             sed -i "s|## Kernel xiaomi sdm845.*|## Kernel xiaomi sdm845 (CAF 4.9.337) by RanggaWbp|" out/img/anykernel.sh
-            sed -i "s|## Features:.*|## Features: BakaSU + SUSFS + NoMount + BBG + DroidSpaces + ReKernel + NTSYNC + BORE + ADIOS + MGLRU + LZ4 + BBRv3|" out/img/anykernel.sh
+            sed -i "s|## Features:.*|## Features: BakaSU + SUSFS + NoMount + BBG + DroidSpaces + ReKernel + NTSYNC + BORE + ADIOS + MGLRU + LZ4 + BBRv3 + POC Selector + Reflex|" out/img/anykernel.sh
             # Same class of failure as above, caught before zipping: TWRP only
             # reports "Updater process ended with ERROR: 1" with no line number,
             # so a syntax error has to be caught here instead of in the field.
@@ -458,6 +458,8 @@ jobs:
             echo "- **MGLRU** Multi-Gen LRU page reclaim (MGLRU v5 backport)"
             echo "- **LZ4** zram compressor (lz4 default, synced to upstream lib/lz4)"
             echo "- **BBRv3** TCP congestion control (\`bbr3\`, **active by default**, coexists with \`bbr\` v1) + **PLB** load balancing"
+            echo "- **POC Selector** v2.6.3 (Piece-Of-Cake idle CPU selector, capacity-class gated so it stays inside the target's cluster on big.LITTLE)"
+            echo "- **Reflex** cpufreq governor v0.4.0 (schedutil + measured fast path for rising load, **active by default**)"
             echo
             echo "### BBRv3"
             echo "\`bbr3\` is the default congestion control in this image (\`CONFIG_DEFAULT_TCP_CONG=\"bbr3\"\`), so it is live from boot for every new connection — no sysctl needed."
