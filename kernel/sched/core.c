@@ -8222,8 +8222,36 @@ sd_init(struct sched_domain_topology_level *tl,
 		 * sched_domain_span(sd); the CONFIG_SCHED_CLUSTER block is
 		 * dropped (no such config on 4.9) while poc_cluster_mask[]
 		 * and poc_cluster_valid are still zero-initialised.
+		 *
+		 * 4.9 has no cpumask_last(), so the span's highest CPU is
+		 * found by walking it.  All declarations are hoisted to the
+		 * top of the block: this tree builds with
+		 * -Wdeclaration-after-statement (ISO C90).
 		 */
-		int range = cpumask_last(sched_domain_span(sd)) - sd_id + 1;
+		int range = 0;
+		int last_cpu = sd_id;
+		int cpu_iter;
+		u64 members = 0;
+		u64 primary_mask = 0;
+		bool all_2way = true;
+		bool all_consecutive = true;
+		int uniform_stride = -1;
+#ifdef CONFIG_SCHED_SMT
+		int bit;
+		int sibling;
+		int sib_bit;
+		int ways;
+		int lo;
+		int hi;
+		int stride;
+		u64 mask = 0;
+#endif
+
+		for_each_cpu(cpu_iter, sched_domain_span(sd)) {
+			if (cpu_iter > last_cpu)
+				last_cpu = cpu_iter;
+		}
+		range = last_cpu - sd_id + 1;
 
 		sd->shared->poc_cpu_base = sd_id;
 		sd->shared->poc_affinity_shift = sd_id & 63;
@@ -8264,19 +8292,13 @@ sd_init(struct sched_domain_topology_level *tl,
 #endif
 
 		/* Build LLC member bitmask for reader-side aggregation */
-		{
-			u64 members = 0;
-			int cpu_iter;
+		for_each_cpu(cpu_iter, sched_domain_span(sd)) {
+			bit = cpu_iter - sd_id;
 
-			for_each_cpu(cpu_iter, sched_domain_span(sd)) {
-				int bit = cpu_iter - sd_id;
-
-				if ((unsigned int)bit < 64)
-					members |= 1ULL << bit;
-			}
-			sd->shared->poc_llc_members = members;
-
+			if ((unsigned int)bit < 64)
+				members |= 1ULL << bit;
 		}
+		sd->shared->poc_llc_members = members;
 
 #ifdef CONFIG_SCHED_SMT
 		/*
@@ -8287,16 +8309,12 @@ sd_init(struct sched_domain_topology_level *tl,
 		memset(sd->shared->poc_smt_mask, 0,
 		       sizeof(sd->shared->poc_smt_mask));
 		if (sd->shared->poc_fast_eligible) {
-			int cpu_iter;
-
 			for_each_cpu(cpu_iter, sched_domain_span(sd)) {
-				int bit = cpu_iter - sd_id;
-				int sibling;
-				u64 mask = 0;
+				bit = cpu_iter - sd_id;
+				mask = 0;
 
-				for_each_cpu(sibling, cpu_smt_mask(cpu_iter)) {
-					int sib_bit;
-
+				for_each_cpu(sibling,
+					     cpu_smt_mask(cpu_iter)) {
 					sib_bit = sibling - sd_id;
 					if (sib_bit >= 0 && sib_bit < 64)
 						mask |= 1ULL << sib_bit;
@@ -8330,20 +8348,14 @@ sd_init(struct sched_domain_topology_level *tl,
 		sd->shared->poc_primary_mask = 0;
 
 		if (sd->shared->poc_fast_eligible) {
-			int cpu_iter;
-			bool all_2way = true;
-			bool all_consecutive = true;
-			int uniform_stride = -1;
-			u64 primary_mask = 0;
-
 			for_each_cpu(cpu_iter, sched_domain_span(sd)) {
-				int bit = cpu_iter - sd_id;
+				bit = cpu_iter - sd_id;
 
 				if (bit < 0 || bit >= 64)
 					continue;
-				{
-				u64 mask = sd->shared->poc_smt_mask[bit];
-				int ways = hweight64(mask);
+
+				mask = sd->shared->poc_smt_mask[bit];
+				ways = hweight64(mask);
 
 				if (ways != 2) {
 					all_2way = false;
@@ -8351,10 +8363,9 @@ sd_init(struct sched_domain_topology_level *tl,
 					break;
 				}
 
-				{
-				int lo = __ffs(mask);
-				int hi = __fls(mask);
-				int stride = hi - lo;
+				lo = __ffs(mask);
+				hi = __fls(mask);
+				stride = hi - lo;
 
 				/* Track primary (lowest-numbered sibling) */
 				primary_mask |= 1ULL << lo;
@@ -8368,8 +8379,6 @@ sd_init(struct sched_domain_topology_level *tl,
 					uniform_stride = stride;
 				else if (stride != uniform_stride)
 					all_2way = false;
-				}
-				}
 			}
 
 			if (!all_consecutive)

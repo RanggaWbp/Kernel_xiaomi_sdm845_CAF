@@ -624,6 +624,19 @@ void __set_cpu_idle_state_poc(int cpu, int state)
 {
 	struct rq *rq = cpu_rq(cpu);
 	struct sched_domain_shared *sd_share;
+	int bit;
+	u64 bit_mask;
+#ifdef CONFIG_SCHED_SMT
+	u64 smt;
+	u64 core_bitmask;
+	int core_bit;
+	bool core_idle;
+	u64 tmp;
+	u64 cpus;
+	u64 cores;
+	int s;
+#endif
+
 	if (!static_branch_unlikely(&sched_poc_lockless_bitmap) &&
 			!state && READ_ONCE(rq->poc_idle_committed))
 		return;
@@ -635,8 +648,8 @@ void __set_cpu_idle_state_poc(int cpu, int state)
 		return;
 	}
 
-	int bit = cpu - sd_share->poc_cpu_base;
-	u64 bit_mask = 1ULL << bit;
+	bit = cpu - sd_share->poc_cpu_base;
+	bit_mask = 1ULL << bit;
 
 	if (static_branch_unlikely(&sched_poc_lockless_bitmap)) {
 		WRITE_ONCE(sd_share->poc_idle_cpus[bit], state > 0 ? 1 : 0);
@@ -666,10 +679,9 @@ void __set_cpu_idle_state_poc(int cpu, int state)
 		 * Tier 3 (exotic SMT): maintain separate cores state.
 		 * Check whether all SMT siblings are idle.
 		 */
-		u64 smt = sd_share->poc_smt_mask[bit];
-		u64 core_bitmask = smt & (-smt); /* core representative */
-		int core_bit = __builtin_ctzll(core_bitmask);
-		bool core_idle;
+		smt = sd_share->poc_smt_mask[bit];
+		core_bitmask = smt & (-smt); /* core representative */
+		core_bit = __builtin_ctzll(core_bitmask);
 
 		if (static_branch_unlikely(&sched_poc_lockless_bitmap)) {
 			/*
@@ -680,11 +692,11 @@ void __set_cpu_idle_state_poc(int cpu, int state)
 			 * On ARM64: dmb ishst.
 			 */
 			smp_wmb();
-			u64 tmp = smt;
+			tmp = smt;
 
 			core_idle = state > 0;
 			while (core_idle && tmp) {
-				int s = __builtin_ctzll(tmp);
+				s = __builtin_ctzll(tmp);
 
 				if (!READ_ONCE(sd_share->poc_idle_cpus[s]))
 					core_idle = false;
@@ -699,9 +711,9 @@ void __set_cpu_idle_state_poc(int cpu, int state)
 			 * is a compiler barrier (~0 cyc); on ARM64: dmb ish.
 			 */
 			smp_mb__after_atomic();
-			u64 cpus = (u64)atomic64_read(&sd_share->poc_idle_cpus_mask);
+			cpus = (u64)atomic64_read(&sd_share->poc_idle_cpus_mask);
 			core_idle = (cpus & smt) == smt;
-			u64 cores = (u64)atomic64_read(&sd_share->poc_idle_cores_mask);
+			cores = (u64)atomic64_read(&sd_share->poc_idle_cores_mask);
 
 			if (core_idle) {
 				if (!(cores & core_bitmask))
@@ -710,7 +722,7 @@ void __set_cpu_idle_state_poc(int cpu, int state)
 			} else {
 				if (cores & core_bitmask)
 					atomic64_andnot(core_bitmask,
-							&sd_share->poc_idle_cores_mask);
+						    &sd_share->poc_idle_cores_mask);
 			}
 		}
 	}
@@ -879,11 +891,13 @@ static __always_inline u64 poc_smt_sibling_mask(int bit,
 static __always_inline int poc_find_idle_smt_sibling(
 	int base, int tgt_bit, u64 cpu_mask, u64 smt_mask)
 {
+	u64 idle_sibs;
+
 	/* Check target first for cache locality */
 	if (POC_IDLE_CPU(tgt_bit))
 		return base + tgt_bit;
 
-	u64 idle_sibs = cpu_mask & smt_mask;
+	idle_sibs = cpu_mask & smt_mask;
 
 	if (idle_sibs)
 		return base + POC_CTZ64(idle_sibs);
@@ -1559,17 +1573,14 @@ static struct kobject *kobj_poc_root;
 static bool poc_check_all_llc_eligible(void)
 {
 	int cpu;
+	struct sched_domain_shared *sd_share;
 
 	for_each_online_cpu(cpu) {
-		struct sched_domain_shared *sd_share;
-
 		rcu_read_lock();
-		{
-			sd_share = rcu_dereference(per_cpu(sd_llc_shared, cpu));
-			if (sd_share && !sd_share->poc_fast_eligible) {
-				rcu_read_unlock();
-				return false;
-			}
+		sd_share = rcu_dereference(per_cpu(sd_llc_shared, cpu));
+		if (sd_share && !sd_share->poc_fast_eligible) {
+			rcu_read_unlock();
+			return false;
 		}
 		rcu_read_unlock();
 	}
