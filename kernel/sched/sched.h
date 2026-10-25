@@ -2061,7 +2061,7 @@ extern struct static_key_true sched_poc_smt_consecutive;
 extern struct static_key_true sched_poc_smt_uniform;
 extern struct static_key_true sched_poc_target_sticky;
 extern struct static_key_true sched_poc_packed;
-extern struct static_key_false sched_poc_lockless_bitmap;
+extern struct static_key_true sched_poc_lockless_bitmap;
 
 /*
  * 4.9 has no CONFIG_SCHED_CLASS_EXT (kernel/sched/ext.c), so the scx

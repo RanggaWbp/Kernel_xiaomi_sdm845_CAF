@@ -258,31 +258,27 @@ DEFINE_STATIC_KEY_TRUE(sched_poc_rr_improved);
  * Lockless bitmap mode: sched_poc_lockless_bitmap
  * (sysctl kernel.sched_poc_lockless_bitmap)
  *
- * When enabled, idle state is tracked in u8[64] flag arrays.
- * Writers use plain WRITE_ONCE (no LOCK prefix); readers snapshot
- * the 64-byte cache line to the stack, then use multiply-and-shift
- * aggregation to assemble a u64 bitmask.
+ * Selects which representation of idle state is written from boot:
  *
- * When disabled (default), idle state is tracked in atomic64_t bitmaps.
- * Readers use a single atomic64_read (MOV on x86); writers use
- * atomic64_or / atomic64_andnot (LOCK'd on x86).
+ *   enabled (default): idle state is tracked in u8[64] flag arrays.
+ *     Writers use plain WRITE_ONCE (no LOCK prefix); readers snapshot
+ *     the 64-byte cache line to the stack, then use multiply-and-shift
+ *     aggregation to assemble a u64 bitmask.
  *
- * Only one representation is maintained at a time (single-write).
- * Switching via sysctl resyncs the newly-active representation
- * before readers can observe it.
+ *   disabled: idle state is tracked in atomic64_t bitmaps.
+ *     Readers use a single atomic64_read (MOV on x86); writers use
+ *     atomic64_or / atomic64_andnot (LOCK'd on x86).
  *
- * Default: disabled, and deliberately left disabled here.
+ * Both representations are always allocated in struct
+ * sched_domain_shared; only one is written at a time.  Switching via
+ * sysctl calls poc_resync_idle_state() under cpu_hotplug_begin() so
+ * the newly-active representation is consistent before readers see it.
  *
- * This switches idle tracking from the validated atomic64_t
- * bitmap path to the u8[64] flag-array + multiply-and-shift
- * path.  Upstream keeps it off by default, the SDM845 devices
- * only just stopped bootlooping, and there is no way to test
- * it before the next CI cycle -- so it stays
- * DEFINE_STATIC_KEY_FALSE.  It can still be enabled at runtime
- * via /proc/sys/kernel/sched_poc_lockless_bitmap once the
- * atomic64 path has been shaken down on real hardware.
+ * Default: enabled.  Upstream kernel/sched/poc_selector.c defaults it
+ * off; this backport defaults it on by explicit request.  The runtime
+ * /proc/sys/kernel/sched_poc_lockless_bitmap can still turn it off.
  */
-DEFINE_STATIC_KEY_FALSE(sched_poc_lockless_bitmap);
+DEFINE_STATIC_KEY_TRUE(sched_poc_lockless_bitmap);
 
 /**************************************************************
  * Debug counters (sysctl kernel.sched_poc_count):
