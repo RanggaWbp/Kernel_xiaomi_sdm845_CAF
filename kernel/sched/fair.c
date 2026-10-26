@@ -9303,8 +9303,38 @@ next:
 	 * shuffle a block that a later pass would reach anyway.
 	 */
 	if (sched_feat(LB_ROTATE_BLOCK) && resume &&
-	    resume != tasks && resume->next != tasks)
-		list_rotate_to_front(resume, tasks);
+	    resume != tasks && resume->next != tasks) {
+		/*
+		 * @resume must be a node of @tasks before it is used as a rotation
+		 * pivot.  list_rotate_to_front() rewires resume->prev and
+		 * resume->next without checking which list they belong to, so a pivot
+		 * that has since been detached -- its node self-linked, or linked into
+		 * env->tasks -- splices env->tasks into cfs_tasks and leaves
+		 * already-dequeued tasks reachable from the next scan.
+		 *
+		 * That is exactly the state the guards keep finding: kdevtmpfs,
+		 * kworker and swapper sitting in cfs_tasks with se.on_rq == 0 while
+		 * detached == 0 in every single firing, and it is what eventually
+		 * reaches attach_task()'s BUG_ON(task_rq(p) != rq) -- a task detached
+		 * against one runqueue and enqueued against another.
+		 *
+		 * I previously argued @resume could not go stale and was wrong seven
+		 * times over, so it is now checked rather than assumed.  The walk is
+		 * over this runqueue's cfs_tasks and runs once per detach_tasks()
+		 * call, which is negligible next to the balancing it guards.  Not
+		 * finding @resume means the list is not what this pass assumed, and
+		 * the correct response is to leave it alone: a skipped rotation costs
+		 * one extra scan, a bad one corrupts the list.
+		 */
+		struct list_head *n;
+
+		list_for_each(n, tasks) {
+			if (n == resume) {
+				list_rotate_to_front(resume, tasks);
+				break;
+			}
+		}
+	}
 
 	/*
 	 * Right now, this is one of only two places we collect this stat
