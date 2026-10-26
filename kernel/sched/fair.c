@@ -9028,6 +9028,22 @@ redo:
 			pr_warn_once("cambyses: detach_tasks() found a self-linked se.group_node in cfs_tasks, stopping scan\n"
 				"  p=%px pid=%d comm=%s cpu=%d src_cpu=%d\n",
 				p, p->pid, p->comm, task_cpu(p), env->src_cpu);
+
+			/*
+			 * Abort the whole pass, not just the scan.  @resume still holds
+			 * the value from the previous iteration, which for this very
+			 * fault is &p->se.group_node -- the self-linked node.  Rotating
+			 * from there splices a node that is not in the list into it,
+			 * which corrupts cfs_tasks and hangs the runqueue: that is the
+			 * 0.79s hard reset with no panic in the v196 log, 16ms before
+			 * the first guard of the previous build had fired at 0.81s.
+			 *
+			 * Clearing both also disarms the concession below, so nothing
+			 * is detached on the way out of a pass that has already been
+			 * shown to be walking a bad list.
+			 */
+			resume = NULL;
+			concession.p = NULL;
 			break;
 		}
 
@@ -9139,7 +9155,15 @@ redo:
 			 * cumulative_runnable_avg for a task that was enqueued
 			 * elsewhere, and dec_rq_walt_stats() BUG_ONs.  A partially
 			 * completed pass is recoverable; a negative WALT counter is not.
+			 *
+			 * Abort the pass rather than merely ending the scan: @resume
+			 * points at @nextp, and on a list already known to be wrong the
+			 * successor is just as likely to be broken, so rotating from it
+			 * would corrupt cfs_tasks.  Clearing both disarms the
+			 * concession too.
 			 */
+			resume = NULL;
+			concession.p = NULL;
 			break;
 		}
 
@@ -9165,7 +9189,12 @@ redo:
 				"  p=%px pid=%d comm=%s cpu=%d src_cpu=%d\n",
 				p, p->pid, p->comm, task_cpu(p), env->src_cpu);
 
-			/* Same reasoning as the se.on_rq guard above: stop the scan. */
+			/*
+			 * Same reasoning as the se.on_rq guard above: abort the pass,
+			 * and clear @resume so the rotation is disarmed with it.
+			 */
+			resume = NULL;
+			concession.p = NULL;
 			break;
 		}
 
