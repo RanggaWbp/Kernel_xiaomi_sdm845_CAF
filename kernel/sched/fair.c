@@ -8859,41 +8859,6 @@ static struct task_struct *detach_one_task(struct lb_env *env)
 	return NULL;
 }
 
-/*
- * list_rotate_to_front - rotate a list so that @new_first becomes its head
- * @new_first: the entry that should end up first
- * @head: the head of the list
- *
- * Everything from @new_first to the old tail keeps its relative order and
- * moves to the front; everything before it keeps its relative order and
- * moves to the tail.
- *
- * This tree's include/linux/list.h has no list_rotate_to_front(), so supply it
- * locally rather than adding it to a header the whole tree shares.  The
- * argument order is 6.12's, so the call site reads exactly like upstream's.
- * (list_next_entry()/list_prev_entry() do exist in 4.9's list.h and are used
- * directly; only the rotation helper had to be added.)
- */
-static inline void list_rotate_to_front(struct list_head *new_first,
-					struct list_head *head)
-{
-	struct list_head *first = head->next;
-	struct list_head *tail = head->prev;
-
-	/* Already the head: rotating is a no-op, and the pointer dance below
-	 * would splice the head out of the list if it ran. */
-	if (new_first == first)
-		return;
-
-	/* tail->next is the head itself in a circular list. */
-	new_first->prev->next = tail->next;
-	tail->next->prev = new_first->prev;
-	new_first->prev = head;
-	tail->next = first;
-	first->prev = tail;
-	head->next = new_first;
-}
-
 #define SCHED_CAMBYSES_AUTHOR	"Masahito Suzuki"
 #define SCHED_CAMBYSES_PROGNAME	"Cambyses CFS Load Balancer modification"
 
@@ -8964,8 +8929,7 @@ static int detach_tasks(struct lb_env *env)
 {
 	struct list_head *tasks = &env->src_rq->cfs_tasks;
 	struct lb_concession concession = { NULL, 0 };
-	struct list_head *resume = NULL;
-	struct task_struct *p, *nextp;
+	struct task_struct *p;
 	unsigned long load;
 	int detached = 0;
 	int orig_loop = env->loop;
@@ -8984,57 +8948,41 @@ static int detach_tasks(struct lb_env *env)
 redo:
 	/* A concession remembered by the previous pass may name a task that the
 	 * second pass, with the IGNORE flags cleared, would now migrate
-	 * normally; and @resume is meaningless once the list has been walked
-	 * again.  Drop both rather than let a stale pointer steer pass 2. */
+	 * normally.  Drop it rather than let a stale pointer steer pass 2. */
 	concession.p = NULL;
 	concession.cost = 0;
-	resume = NULL;
 
 	/*
-	 * Walk cfs_tasks from the head towards the tail, which is the
-	 * direction this tree has always walked it in.  Reversing it would
-	 * change which task gets picked, which is beyond cambyses's scope.
-	 *
-	 * @nextp is latched before the body runs because a successful
-	 * detach_task() takes @p off this list.  Only @p is ever removed
-	 * here and the rq lock is held throughout, so @nextp stays valid.
-	 *
-	 * @resume tracks the first task this pass has not examined; it is
-	 * the point a later pass should restart from.
+	 * This loop is deliberately upstream 4.9's, unchanged: the same
+	 * while/list_first_entry walk, the same per-reject list_move_tail().
+	 * Cambyses v0.6.0 restructures it into a for-loop with a latched
+	 * successor so it can rotate the examined block once per scan instead
+	 * of moving each reject (LB_ROTATE_BLOCK).  That restructuring is what
+	 * crashed this tree twice -- see the LB_ROTATE_BLOCK note in
+	 * features.h -- so it is not ported, and the loop stays as upstream
+	 * wrote it.
 	 */
-	for (p = list_first_entry(tasks, struct task_struct, se.group_node);
-	     &p->se.group_node != tasks; p = nextp) {
-		nextp = list_next_entry(p, se.group_node);
-
+	while (!list_empty(tasks)) {
 		/*
 		 * We don't want to steal all, otherwise we may be treated likewise,
 		 * which could at worst lead to a livelock crash.
 		 */
-		if (env->idle != CPU_NOT_IDLE && env->src_rq->nr_running <= 1) {
-			resume = &p->se.group_node;
+		if (env->idle != CPU_NOT_IDLE && env->src_rq->nr_running <= 1)
 			break;
-		}
+
+		p = list_first_entry(tasks, struct task_struct, se.group_node);
 
 		env->loop++;
 		/* We've more or less seen every task there is, call it quits */
-		if (env->loop > env->loop_max) {
-			resume = &p->se.group_node;
+		if (env->loop > env->loop_max)
 			break;
-		}
 
 		/* take a breather every nr_migrate tasks */
 		if (env->loop > env->loop_break) {
 			env->loop_break += sched_nr_migrate_break;
 			env->flags |= LBF_NEED_BREAK;
-			resume = &p->se.group_node;
 			break;
 		}
-
-		/*
-		 * From here on @p counts as examined, whatever the outcome:
-		 * a later pass resumes past it rather than looking again.
-		 */
-		resume = &nextp->se.group_node;
 
 		if (!can_migrate_task(p, env))
 			goto next;
@@ -9093,12 +9041,8 @@ redo:
 
 		continue;
 next:
-		/* Keep this tree's per-reject move to the tail as the
-		 * LB_ROTATE_BLOCK=off behaviour; 6.12 moves to the head
-		 * because it walks the other way round. */
-		if (!sched_feat(LB_ROTATE_BLOCK))
-			list_move_tail(&p->se.group_node, tasks);
-	}
+	list_move_tail(&p->se.group_node, tasks);
+}
 
 	/*
 	 * Qualcomm's retry, unchanged and deliberately first: it fires only on
@@ -9141,25 +9085,6 @@ next:
 		env->flags |= LBF_MOVED;
 		detached++;
 	}
-
-	/*
-	 * Advance the scan window as a block.
-	 *
-	 * @resume is the first task this pass did not examine, so making it
-	 * the new head is the same as moving every task ahead of it -- the
-	 * examined block -- to the tail, which is precisely what the
-	 * per-reject list_move_tail() above accumulates one task at a time.
-	 * The examined block keeps its relative order either way, so the two
-	 * schemes agree on which task the next pass starts from.
-	 *
-	 * Two cases need no rotation and the guards below cover both: the
-	 * walk reached the head (@resume is the list itself, everything was
-	 * examined), or @resume is the last node, where rotating would only
-	 * shuffle a block that a later pass would reach anyway.
-	 */
-	if (sched_feat(LB_ROTATE_BLOCK) && resume &&
-	    resume != tasks && resume->next != tasks)
-		list_rotate_to_front(resume, tasks);
 
 	/*
 	 * Right now, this is one of only two places we collect this stat

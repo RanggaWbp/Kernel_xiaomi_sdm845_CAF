@@ -87,10 +87,28 @@ SCHED_FEAT(ATTACH_AGE_LOAD, true)
  * Both schemes give the same coverage -- a later balance pass resumes where
  * the previous one stopped -- but the per-reject move costs one list
  * operation per rejected task under rq_lock, where a block rotation costs
- * one per scan.  It also keeps the list order independent of migration
- * outcome, which the per-reject move does not.
+ * one per scan.
  *
- * Turn off to get the upstream per-reject list_move_tail() behaviour.
+ * NOT PORTED to this tree, and off for that reason rather than by choice.
+ * Implementing it means restructuring detach_tasks()' loop from 4.9's
+ * `while (!list_empty(tasks))` + `p = list_first_entry()` into a for-loop
+ * with a latched successor, so the scan can advance past a task it has
+ * examined without moving it.  That restructuring was tried twice on this
+ * tree and bootlooped both times:
+ *
+ *   v186  kernel BUG at kernel/sched/sched_avg.c:169  (WALT nr counter < 0,
+ *         i.e. a task dequeued without a matching enqueue), at 1.52s
+ *   v187  rb_erase+0x194 NULL deref from
+ *         detach_task -> deactivate_task -> dequeue_task_fair, at 8.33s
+ *         (a task dequeued twice, so rb_erase ran on an already-erased node)
+ *
+ * The second of those fired with this feature already off, which locates the
+ * fault in the loop restructuring itself rather than in either feature.
+ * The loop is therefore left exactly as upstream 4.9 wrote it, and this
+ * entry stays inert until the restructuring can be done safely.
+ *
+ * Turn on only together with a loop that advances without moving each
+ * reject; with upstream's loop the reject must keep its list_move_tail().
  */
 SCHED_FEAT(LB_ROTATE_BLOCK, false)
 
@@ -111,7 +129,7 @@ SCHED_FEAT(LB_ROTATE_BLOCK, false)
  *
  * Turn off to get the upstream (cost / 2) comparison.
  */
-SCHED_FEAT(LB_STRICT_BUDGET, false)
+SCHED_FEAT(LB_STRICT_BUDGET, true)
 
 /*
  * Energy aware scheduling. Use platform energy model to guide scheduling
