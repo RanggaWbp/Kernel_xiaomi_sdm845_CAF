@@ -9002,6 +9002,36 @@ redo:
 		nextp = list_next_entry(p, se.group_node);
 
 		/*
+		 * INVARIANT: in a healthy circular list list_next_entry(p) is
+		 * never p itself.  Even a single-element list yields the head
+		 * node, because that element's ->next is the list_head.
+		 *
+		 * nextp == p therefore means p->se.group_node is self-linked,
+		 * i.e. list_del_init() has already run on it while the node is
+		 * still reachable from cfs_tasks.  That is exactly the state an
+		 * unbound kworker (WQ_UNBOUND) is left in when it migrates
+		 * between runqueues without going through
+		 * detach_task()/attach_task(): its group_node is spliced out
+		 * of one cfs_tasks and never re-linked into another.
+		 *
+		 * Advancing would revisit p until loop_max, and -- worse --
+		 * leave @resume pointing at the self-linked node, so the
+		 * block rotation at the end of the pass would splice a node
+		 * that is not in the list into it and corrupt cfs_tasks.  That
+		 * corruption is what produced the BUG_ON(task_rq(p) != rq) in
+		 * attach_task() and hung this tree during early boot.
+		 *
+		 * Stop the scan instead.  A partially completed pass is
+		 * recoverable; a corrupted list is not.
+		 */
+		if (unlikely(nextp == p)) {
+			pr_warn_once("cambyses: detach_tasks() found a self-linked se.group_node in cfs_tasks, stopping scan\n"
+				"  p=%px pid=%d comm=%s cpu=%d src_cpu=%d\n",
+				p, p->pid, p->comm, task_cpu(p), env->src_cpu);
+			break;
+		}
+
+		/*
 		 * We don't want to steal all, otherwise we may be treated likewise,
 		 * which could at worst lead to a livelock crash.
 		 */
