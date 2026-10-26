@@ -2,7 +2,7 @@
 ## osm0sis @ xda-developers
 ## Kernel xiaomi sdm845 (CAF 4.9.337) by RanggaWbp
 ##
-## Features: BakaSU + SUSFS + NoMount + BBG + DroidSpaces + ReKernel + NTSYNC + BORE + ADIOS + MGLRU + LZ4 + BBRv3 + POC Selector + Reflex
+## Features: BakaSU + SUSFS + NoMount + BBG + DroidSpaces + ReKernel + NTSYNC + BORE + ADIOS + MGLRU + LZ4 + BBRv3 + POC Selector + Cambyses + Reflex
 ### AnyKernel properties
 # NOTE: only the key=value lines above this point are read as properties, and
 # they are read lowercase by update-binary's file_getprop. The shell variables
@@ -109,6 +109,7 @@ ui_print " Variant __VARIANT__"
 ui_print "--------------------------------------------------------"
 ui_print " BORE         scheduler latency, burst wakeups"
 ui_print " POC Selector idle CPU picker"
+ui_print " Cambyses     CFS load balancer, strict budget"
 ui_print " Reflex       CPU frequency governor"
 ui_print " MGLRU        multigen page reclaim"
 ui_print " BBRv3        TCP congestion control"
