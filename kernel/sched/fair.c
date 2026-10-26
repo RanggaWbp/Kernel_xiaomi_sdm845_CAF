@@ -9129,7 +9129,18 @@ redo:
 				on_env_tasks, detached, env->imbalance,
 				env->src_cpu, env->dst_cpu,
 				env->src_rq == env->dst_rq, env->loop, env->loop_max);
-			goto next;
+
+			/*
+			 * Stop, do not skip.  Continuing the scan on a list that has
+			 * just been shown to contain a dequeued task is what corrupts
+			 * WALT: detach_task() runs deactivate_task() before
+			 * set_task_cpu(), so for any further task whose task_cpu() has
+			 * drifted from src_cpu, dequeue_task_fair() decrements src_rq's
+			 * cumulative_runnable_avg for a task that was enqueued
+			 * elsewhere, and dec_rq_walt_stats() BUG_ONs.  A partially
+			 * completed pass is recoverable; a negative WALT counter is not.
+			 */
+			break;
 		}
 
 		/*
@@ -9153,7 +9164,9 @@ redo:
 			pr_warn_once("cambyses: detach_tasks() found a task on cfs_tasks that is not on src_cpu\n"
 				"  p=%px pid=%d comm=%s cpu=%d src_cpu=%d\n",
 				p, p->pid, p->comm, task_cpu(p), env->src_cpu);
-			goto next;
+
+			/* Same reasoning as the se.on_rq guard above: stop the scan. */
+			break;
 		}
 
 		detach_task(p, env);
