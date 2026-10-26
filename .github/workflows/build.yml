@@ -505,7 +505,7 @@ jobs:
             echo "- **SUSFS** v2.3.0"
             echo "- **NoMount** (maxsteeel/nomount)"
             echo "- **Baseband-guard** (vc-teahouse/Baseband-guard)"
-            echo "- **ReKernel** optimizations"
+            echo "- **ReKernel** tombstone netlink server (Sakion-Team: a Netlink endpoint tombstone apps talk to, so native crashes are reported with fuller detail)"
             echo "- **DroidSpaces** container support"
             echo "- **NTSYNC** (/dev/ntsync) NT sync primitives for Wine/Proton"
             echo "- **BORE** CPU scheduler (EEVDF burst-aware vruntime)"

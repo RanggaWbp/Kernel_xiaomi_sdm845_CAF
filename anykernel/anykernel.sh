@@ -120,7 +120,7 @@ ui_print " SUSFS        hides root from detection"
 ui_print " NoMount      hides /proc mounts"
 ui_print " BBG          baseband memory guard"
 ui_print " DroidSpaces  app sandbox containers"
-ui_print " ReKernel     sysctl tuner helper"
+ui_print " ReKernel     tombstone netlink server"
 ui_print " NTSYNC       nt sync driver"
 ui_print "--------------------------------------------------------"
 # Reflex and ADIOS are kernel defaults (CONFIG_CPU_FREQ_DEFAULT_GOV_REFLEX,
