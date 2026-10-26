@@ -291,11 +291,6 @@ jobs:
           # POC Selector is #included into fair.o, so fair.o is the only
           # object that proves it compiled into the image.
           test -f out/kernel/sched/fair.o || { echo 'ERROR: fair.o not built'; exit 1; }
-          # Cambyses must have really reached the image, not just be present
-          # in the source: the late_initcall banner is the only artifact in
-          # fair.o that proves the code compiled in rather than being
-          # #ifdef'd or dropped by a config dependency.
-          strings out/kernel/sched/fair.o | grep -q 'Cambyses CFS Load Balancer modification' || { echo 'ERROR: Cambyses not compiled into fair.o'; exit 1; }
           # ADIOS must be the built-in default scheduler: IOSCHED_ADIOS can be
           # =y while DEFAULT_ADIOS is unset (choice default is CFQ), which
           # compiles adios-iosched.o but never selects it at boot.

@@ -81,39 +81,6 @@ SCHED_FEAT(LB_MIN, false)
 SCHED_FEAT(ATTACH_AGE_LOAD, true)
 
 /*
- * Advance detach_tasks()' scan window by rotating the examined block out of
- * the way, instead of moving each rejected task there one by one.
- *
- * Both schemes give the same coverage -- a later balance pass resumes where
- * the previous one stopped -- but the per-reject move costs one list
- * operation per rejected task under rq_lock, where a block rotation costs
- * one per scan.  It also keeps the list order independent of migration
- * outcome, which the per-reject move does not.
- *
- * Turn off to get the upstream per-reject list_move_tail() behaviour.
- */
-SCHED_FEAT(LB_ROTATE_BLOCK, true)
-
-/*
- * Compare a migration candidate's cost against the remaining imbalance budget
- * directly, instead of halving it first.
- *
- * The upstream test lets a task through once its cost is no more than twice
- * the imbalance, so a task larger than the budget is only ever moved when
- * nothing cheaper is left.  That is the only way an over-budget task moves at
- * all here, since imbalanced_active_balance() escalates for active balancing
- * only.  Dropping the relaxation alone would therefore leave such a task
- * permanently unmovable; detach_tasks() replaces the guarantee with an
- * explicit one -- a scan that admits nothing concedes to the smallest
- * overshoot it saw.  That asks the candidates actually present, so no other
- * task's success can defer it, and it acts on the first scan that admits
- * nothing rather than once enough cheaper candidates have been exhausted.
- *
- * Turn off to get the upstream (cost / 2) comparison.
- */
-SCHED_FEAT(LB_STRICT_BUDGET, true)
-
-/*
  * Energy aware scheduling. Use platform energy model to guide scheduling
  * decisions optimizing for energy efficiency.
  */
