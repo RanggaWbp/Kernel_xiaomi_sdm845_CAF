@@ -9075,7 +9075,30 @@ redo:
 		 * way to see it without a debugger.
 		 */
 		if (unlikely(!p->se.on_rq)) {
-			pr_warn("cambyses: detach_tasks() reached an already-dequeued task, skipping\n");
+			/*
+			 * DIAGNOSTIC.  This must never fire.  Dump enough to say
+			 * where the task came from: if it is on env->tasks it was
+			 * detached by this very pass, and if it is on neither list
+			 * then it belongs to another runqueue entirely.
+			 */
+			struct task_struct *q;
+			bool on_env_tasks = false;
+
+			list_for_each_entry(q, &env->tasks, se.group_node) {
+				if (q == p) {
+					on_env_tasks = true;
+					break;
+				}
+			}
+
+			pr_warn("cambyses: detach_tasks() reached an already-dequeued task\n"
+				"  p=%px pid=%d comm=%s cpu=%d se.on_rq=%d\n"
+				"  on env->tasks=%d detached=%d env->imbalance=%ld\n"
+				"  src_cpu=%d dst_cpu=%d same_rq=%d loop=%u loop_max=%u\n",
+				p, p->pid, p->comm, task_cpu(p), p->se.on_rq,
+				on_env_tasks, detached, env->imbalance,
+				env->src_cpu, env->dst_cpu,
+				env->src_rq == env->dst_rq, env->loop, env->loop_max);
 			goto next;
 		}
 
@@ -9148,12 +9171,24 @@ next:
 	 * node off the list that the rotation would otherwise anchor on.
 	 */
 	if (concession.p && !(env->flags & LBF_MOVED)) {
-		detach_task(concession.p, env);
-		list_add(&concession.p->se.group_node, &env->tasks);
+		/*
+		 * DIAGNOSTIC, same reasoning as the guard in the scan above:
+		 * detach_task() is unconditional and rb_erase() on an
+		 * already-erased node dereferences NULL.
+		 */
+		if (unlikely(!concession.p->se.on_rq)) {
+			pr_warn("cambyses: concession is already-dequeued, skipping\n"
+				"  p=%px pid=%d comm=%s cpu=%d se.on_rq=%d\n",
+				concession.p, concession.p->pid, concession.p->comm,
+				task_cpu(concession.p), concession.p->se.on_rq);
+		} else {
+			detach_task(concession.p, env);
+			list_add(&concession.p->se.group_node, &env->tasks);
 
-		env->imbalance -= concession.cost;
-		env->flags |= LBF_MOVED;
-		detached++;
+			env->imbalance -= concession.cost;
+			env->flags |= LBF_MOVED;
+			detached++;
+		}
 	}
 
 	/*
