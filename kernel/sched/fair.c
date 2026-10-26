@@ -9102,6 +9102,30 @@ redo:
 			goto next;
 		}
 
+		/*
+		 * A task whose task_cpu() is not env->src_cpu does not belong to
+		 * the runqueue being scanned, whatever cfs_tasks says.
+		 *
+		 * Unbound kworkers (WQ_UNBOUND) migrate between runqueues
+		 * without going through detach_task()/attach_task(), so their
+		 * se.group_node can be left linked into a cfs_tasks list long
+		 * after the task has moved on.  Walking onto one of those and
+		 * calling detach_task() would run dequeue_task_fair() against a
+		 * cfs_rq the task is no longer on, splice its group_node out of
+		 * the wrong list, and leave the real list corrupted -- which is
+		 * what hung this tree at 4.47s during early boot.
+		 *
+		 * Rejecting here is what upstream's can_migrate_task() is
+		 * supposed to guarantee, so this is a safety net rather than new
+		 * policy: the task is skipped, and the scan carries on.
+		 */
+		if (unlikely(task_cpu(p) != env->src_cpu)) {
+			pr_warn_once("cambyses: detach_tasks() found a task on cfs_tasks that is not on src_cpu\n"
+				"  p=%px pid=%d comm=%s cpu=%d src_cpu=%d\n",
+				p, p->pid, p->comm, task_cpu(p), env->src_cpu);
+			goto next;
+		}
+
 		detach_task(p, env);
 		list_add(&p->se.group_node, &env->tasks);
 
