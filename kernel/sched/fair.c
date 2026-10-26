@@ -8573,6 +8573,16 @@ enum group_type {
 #define LBF_NEED_BREAK	0x02
 #define LBF_DST_PINNED  0x04
 #define LBF_SOME_PINNED	0x08
+/* This balance operation has detached at least one task. Sticky across the
+ * more_balance retries, so it reflects the whole operation, not one scan.
+ *
+ * env.flags is zeroed only in load_balance()'s struct lb_env initialiser; the
+ * more_balance retries and the redo path below clear individual bits, so this
+ * one survives a retry and is dropped per load_balance() call.  That is exactly
+ * the lifetime the concession below needs, so it must not be cleared anywhere
+ * else.  0x20 is free in this tree: there is no LBF_ACTIVE_LB here.
+ */
+#define LBF_MOVED	0x20
 #define LBF_BIG_TASK_ACTIVE_BALANCE 0x80
 #define LBF_IGNORE_BIG_TASKS 0x100
 #define LBF_IGNORE_PREFERRED_CLUSTER_TASKS 0x200
@@ -8849,6 +8859,99 @@ static struct task_struct *detach_one_task(struct lb_env *env)
 	return NULL;
 }
 
+/*
+ * list_rotate_to_front - rotate a list so that @new_first becomes its head
+ * @new_first: the entry that should end up first
+ * @head: the head of the list
+ *
+ * Everything from @new_first to the old tail keeps its relative order and
+ * moves to the front; everything before it keeps its relative order and
+ * moves to the tail.
+ *
+ * This tree's include/linux/list.h has no list_rotate_to_front(), so supply it
+ * locally rather than adding it to a header the whole tree shares.  The
+ * argument order is 6.12's, so the call site reads exactly like upstream's.
+ * (list_next_entry()/list_prev_entry() do exist in 4.9's list.h and are used
+ * directly; only the rotation helper had to be added.)
+ */
+static inline void list_rotate_to_front(struct list_head *new_first,
+					struct list_head *head)
+{
+	struct list_head *first = head->next;
+	struct list_head *tail = head->prev;
+
+	/* Already the head: rotating is a no-op, and the pointer dance below
+	 * would splice the head out of the list if it ran. */
+	if (new_first == first)
+		return;
+
+	/* tail->next is the head itself in a circular list. */
+	new_first->prev->next = tail->next;
+	tail->next->prev = new_first->prev;
+	new_first->prev = head;
+	tail->next = first;
+	first->prev = tail;
+	head->next = new_first;
+}
+
+#define SCHED_CAMBYSES_AUTHOR	"Masahito Suzuki"
+#define SCHED_CAMBYSES_PROGNAME	"Cambyses CFS Load Balancer modification"
+
+#define SCHED_CAMBYSES_VERSION	"0.6.0"
+
+static int __init sched_cambyses_init(void)
+{
+	printk(KERN_INFO "%s %s by %s\n",
+		SCHED_CAMBYSES_PROGNAME, SCHED_CAMBYSES_VERSION,
+		SCHED_CAMBYSES_AUTHOR);
+
+	return 0;
+}
+late_initcall(sched_cambyses_init);
+
+/*
+ * The cheapest candidate a scan passed over because it did not fit the
+ * remaining imbalance budget.  If the scan ends up taking nothing at all,
+ * detach_tasks() concedes to this one so the balance still makes progress.
+ *
+ * Scoped to a single detach_tasks() call on purpose: the rq lock is dropped
+ * between the caller's more_balance retries, so a task remembered across them
+ * could be gone by the time it is used.  With the default nr_migrate the scan
+ * is not chunked at all (loop_max <= loop_break, so the loop_max break always
+ * wins) and this is the cheapest overshoot on the whole runqueue anyway.
+ */
+struct lb_concession {
+	struct task_struct	*p;
+	unsigned long		cost;
+};
+
+/*
+ * Does moving @p, costing @cost, fit the remaining imbalance budget?
+ *
+ * LB_STRICT_BUDGET compares directly and notes the smallest overshoot seen so
+ * far.  Upstream instead relaxes the comparison; see features.h for why that
+ * relaxation is unreachable while cheaper candidates keep succeeding.
+ *
+ * This tree has no shr_bound(): its rule is the plain (cost / 2) test below,
+ * which is what the !LB_STRICT_BUDGET branch reproduces exactly.
+ */
+static bool lb_cost_fits(struct lb_env *env, struct lb_concession *concession,
+			 struct task_struct *p, unsigned long cost)
+{
+	if (!sched_feat(LB_STRICT_BUDGET))
+		return (cost / 2) <= env->imbalance;
+
+	if (cost <= env->imbalance)
+		return true;
+
+	if (!concession->p || cost < concession->cost) {
+		concession->p = p;
+		concession->cost = cost;
+	}
+
+	return false;
+}
+
 static const unsigned int sched_nr_migrate_break = 32;
 
 /*
@@ -8860,7 +8963,9 @@ static const unsigned int sched_nr_migrate_break = 32;
 static int detach_tasks(struct lb_env *env)
 {
 	struct list_head *tasks = &env->src_rq->cfs_tasks;
-	struct task_struct *p;
+	struct lb_concession concession = { NULL, 0 };
+	struct list_head *resume = NULL;
+	struct task_struct *p, *nextp;
 	unsigned long load;
 	int detached = 0;
 	int orig_loop = env->loop;
@@ -8877,27 +8982,59 @@ static int detach_tasks(struct lb_env *env)
 		env->flags |= LBF_IGNORE_BIG_TASKS;
 
 redo:
-	while (!list_empty(tasks)) {
+	/* A concession remembered by the previous pass may name a task that the
+	 * second pass, with the IGNORE flags cleared, would now migrate
+	 * normally; and @resume is meaningless once the list has been walked
+	 * again.  Drop both rather than let a stale pointer steer pass 2. */
+	concession.p = NULL;
+	concession.cost = 0;
+	resume = NULL;
+
+	/*
+	 * Walk cfs_tasks from the head towards the tail, which is the
+	 * direction this tree has always walked it in.  Reversing it would
+	 * change which task gets picked, which is beyond cambyses's scope.
+	 *
+	 * @nextp is latched before the body runs because a successful
+	 * detach_task() takes @p off this list.  Only @p is ever removed
+	 * here and the rq lock is held throughout, so @nextp stays valid.
+	 *
+	 * @resume tracks the first task this pass has not examined; it is
+	 * the point a later pass should restart from.
+	 */
+	for (p = list_first_entry(tasks, struct task_struct, se.group_node);
+	     &p->se.group_node != tasks; p = nextp) {
+		nextp = list_next_entry(p, se.group_node);
+
 		/*
 		 * We don't want to steal all, otherwise we may be treated likewise,
 		 * which could at worst lead to a livelock crash.
 		 */
-		if (env->idle != CPU_NOT_IDLE && env->src_rq->nr_running <= 1)
+		if (env->idle != CPU_NOT_IDLE && env->src_rq->nr_running <= 1) {
+			resume = &p->se.group_node;
 			break;
-
-		p = list_first_entry(tasks, struct task_struct, se.group_node);
+		}
 
 		env->loop++;
 		/* We've more or less seen every task there is, call it quits */
-		if (env->loop > env->loop_max)
+		if (env->loop > env->loop_max) {
+			resume = &p->se.group_node;
 			break;
+		}
 
 		/* take a breather every nr_migrate tasks */
 		if (env->loop > env->loop_break) {
 			env->loop_break += sched_nr_migrate_break;
 			env->flags |= LBF_NEED_BREAK;
+			resume = &p->se.group_node;
 			break;
 		}
+
+		/*
+		 * From here on @p counts as examined, whatever the outcome:
+		 * a later pass resumes past it rather than looking again.
+		 */
+		resume = &nextp->se.group_node;
 
 		if (!can_migrate_task(p, env))
 			goto next;
@@ -8911,7 +9048,6 @@ redo:
 		 */
 		load = max_t(unsigned long, task_h_load(p), 1);
 
-
 		if (sched_feat(LB_MIN) && load < 16 && !env->sd->nr_balance_failed)
 			goto next;
 
@@ -8922,15 +9058,19 @@ redo:
 		 * So only when there is other tasks can be balanced or
 		 * there is situation to ignore big task, it is needed
 		 * to skip the task load bigger than 2*imbalance.
+		 *
+		 * With LB_STRICT_BUDGET off, lb_cost_fits() is exactly this
+		 * tree's own (load / 2) > env->imbalance test.
 		 */
 		if (((cpu_rq(env->src_cpu)->nr_running > 2) ||
 			(env->flags & LBF_IGNORE_BIG_TASKS)) &&
-			((load / 2) > env->imbalance))
+			!lb_cost_fits(env, &concession, p, load))
 			goto next;
 
 		detach_task(p, env);
 		list_add(&p->se.group_node, &env->tasks);
 
+		env->flags |= LBF_MOVED;
 		detached++;
 		env->imbalance -= load;
 
@@ -8953,9 +9093,18 @@ redo:
 
 		continue;
 next:
-		list_move_tail(&p->se.group_node, tasks);
+		/* Keep this tree's per-reject move to the tail as the
+		 * LB_ROTATE_BLOCK=off behaviour; 6.12 moves to the head
+		 * because it walks the other way round. */
+		if (!sched_feat(LB_ROTATE_BLOCK))
+			list_move_tail(&p->se.group_node, tasks);
 	}
 
+	/*
+	 * Qualcomm's retry, unchanged and deliberately first: it fires only on
+	 * !detached, so anything that bumped @detached above it would silently
+	 * suppress it and change this vendor's behaviour.
+	 */
 	if (env->flags & (LBF_IGNORE_BIG_TASKS |
 			LBF_IGNORE_PREFERRED_CLUSTER_TASKS) && !detached) {
 		tasks = &env->src_rq->cfs_tasks;
@@ -8964,6 +9113,53 @@ next:
 		env->loop = orig_loop;
 		goto redo;
 	}
+
+	/*
+	 * Nothing fit the budget and nothing has moved yet, so concede to the
+	 * smallest overshoot the scan found rather than leave the imbalance
+	 * standing.  There is a single cost metric here (task_h_load), and no
+	 * other way out for a task larger than the imbalance, so dropping the
+	 * budget relaxation alone would leave it permanently unmovable.
+	 *
+	 * This is the whole reason LB_STRICT_BUDGET can drop the upstream
+	 * relaxation.  Both exist to guarantee progress; this one asks the
+	 * candidates present rather than a domain counter that other tasks'
+	 * successes keep resetting, and it acts on the first scan that admits
+	 * nothing instead of once enough failures have been recorded.
+	 *
+	 * LBF_MOVED makes it fire at most once per balance operation.  The
+	 * source cannot have been emptied meanwhile: the entry check above
+	 * runs on every call and rejects nr_running <= 1, and no task has been
+	 * detached since.  Done before the rotation below because it takes a
+	 * node off the list that the rotation would otherwise anchor on.
+	 */
+	if (concession.p && !(env->flags & LBF_MOVED)) {
+		detach_task(concession.p, env);
+		list_add(&concession.p->se.group_node, &env->tasks);
+
+		env->imbalance -= concession.cost;
+		env->flags |= LBF_MOVED;
+		detached++;
+	}
+
+	/*
+	 * Advance the scan window as a block.
+	 *
+	 * @resume is the first task this pass did not examine, so making it
+	 * the new head is the same as moving every task ahead of it -- the
+	 * examined block -- to the tail, which is precisely what the
+	 * per-reject list_move_tail() above accumulates one task at a time.
+	 * The examined block keeps its relative order either way, so the two
+	 * schemes agree on which task the next pass starts from.
+	 *
+	 * Two cases need no rotation and the guards below cover both: the
+	 * walk reached the head (@resume is the list itself, everything was
+	 * examined), or @resume is the last node, where rotating would only
+	 * shuffle a block that a later pass would reach anyway.
+	 */
+	if (sched_feat(LB_ROTATE_BLOCK) && resume &&
+	    resume != tasks && resume->next != tasks)
+		list_rotate_to_front(resume, tasks);
 
 	/*
 	 * Right now, this is one of only two places we collect this stat
