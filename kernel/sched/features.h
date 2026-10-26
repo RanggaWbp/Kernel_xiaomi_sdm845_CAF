@@ -89,12 +89,13 @@ SCHED_FEAT(ATTACH_AGE_LOAD, true)
  * operation per rejected task under rq_lock, where a block rotation costs
  * one per scan.
  *
- * NOT PORTED to this tree, and off for that reason rather than by choice.
- * Implementing it means restructuring detach_tasks()' loop from 4.9's
- * `while (!list_empty(tasks))` + `p = list_first_entry()` into a for-loop
- * with a latched successor, so the scan can advance past a task it has
- * examined without moving it.  That restructuring was tried twice on this
- * tree and bootlooped both times:
+ * Ported.  detach_tasks()' loop is 4.9's `while (!list_empty(tasks))`
+ * restructured into a for-loop with a latched successor, so the scan can
+ * advance past a task it has examined without moving it, and the examined
+ * block is rotated once at the end of the pass instead.
+ *
+ * That restructuring is what bootlooped this tree twice before it worked,
+ * and both crashes are worth keeping in mind:
  *
  *   v186  kernel BUG at kernel/sched/sched_avg.c:169  (WALT nr counter < 0,
  *         i.e. a task dequeued without a matching enqueue), at 1.52s
@@ -102,15 +103,15 @@ SCHED_FEAT(ATTACH_AGE_LOAD, true)
  *         detach_task -> deactivate_task -> dequeue_task_fair, at 8.33s
  *         (a task dequeued twice, so rb_erase ran on an already-erased node)
  *
- * The second of those fired with this feature already off, which locates the
- * fault in the loop restructuring itself rather than in either feature.
- * The loop is therefore left exactly as upstream 4.9 wrote it, and this
- * entry stays inert until the restructuring can be done safely.
+ * v187 fired with this feature already off, which is what located the fault
+ * in the loop rather than in either feature.  The scan now guards every
+ * detach with `p->se.on_rq` -- dequeue_entity() clears it on every dequeue,
+ * so a task that lost it is off the rbtree -- and warns if it ever sees one.
+ * That guard is the difference between this attempt and the two that failed.
  *
- * Turn on only together with a loop that advances without moving each
- * reject; with upstream's loop the reject must keep its list_move_tail().
+ * Turn off to get the upstream per-reject list_move_tail() behaviour.
  */
-SCHED_FEAT(LB_ROTATE_BLOCK, false)
+SCHED_FEAT(LB_ROTATE_BLOCK, true)
 
 /*
  * Compare a migration candidate's cost against the remaining imbalance budget
