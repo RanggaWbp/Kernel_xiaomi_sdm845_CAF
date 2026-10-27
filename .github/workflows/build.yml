@@ -186,6 +186,11 @@ jobs:
           grep -q 'CONFIG_IOSCHED_ADIOS=y' out/.config || echo 'CONFIG_IOSCHED_ADIOS=y' >> out/.config
           grep -q 'CONFIG_LRU_GEN=y' out/.config || echo 'CONFIG_LRU_GEN=y' >> out/.config
           grep -q 'CONFIG_CRYPTO_LZ4=y' out/.config || echo 'CONFIG_CRYPTO_LZ4=y' >> out/.config
+          # LZ4KD is built in so the "lz4kdr" crypto algorithm is registered
+          # and shows up in /sys/block/zram0/comp_algorithm. It is NOT the
+          # default compressor -- LZ4 stays default, LZ4KD is selected by
+          # hand from Franco Kernel Manager.
+          grep -q 'CONFIG_CRYPTO_LZ4KDR=y' out/.config || echo 'CONFIG_CRYPTO_LZ4KDR=y' >> out/.config
           # BBRv3 must be BUILT IN (=y, not =m): the AK3 zip ships only
           # Image.gz-dtb, so a .ko would never reach the device. TCP_CONG_BBR3
           # lives inside `if TCP_CONG_ADVANCED`, so that must be on too.
@@ -222,6 +227,9 @@ jobs:
           check_symbol "CONFIG_CRYPTO_LZ4" "y"
           check_symbol "CONFIG_LZ4_COMPRESS" "y"
           check_symbol "CONFIG_LZ4_DECOMPRESS" "y"
+          check_symbol "CONFIG_CRYPTO_LZ4KDR" "y"
+          check_symbol "CONFIG_LZ4KDR_COMPRESS" "y"
+          check_symbol "CONFIG_LZ4KDR_DECOMPRESS" "y"
           check_symbol "CONFIG_ZRAM" "y"
           check_symbol "CONFIG_TCP_CONG_ADVANCED" "y"
           check_symbol "CONFIG_TCP_CONG_BBR3" "y"
@@ -296,6 +304,9 @@ jobs:
           # fair.o that proves the code compiled in rather than being
           # #ifdef'd or dropped by a config dependency.
           strings out/kernel/sched/fair.o | grep -q 'Cambyses CFS Load Balancer modification' || { echo 'ERROR: Cambyses not compiled into fair.o'; exit 1; }
+          # LZ4KD: the crypto algorithm must really be built, not just =y in
+          # .config, or "lz4kdr" never reaches comp_algorithm.
+          test -f out/crypto/lz4kdr.o || { echo 'ERROR: lz4kdr.o not built'; exit 1; }
           # ADIOS must be the built-in default scheduler: IOSCHED_ADIOS can be
           # =y while DEFAULT_ADIOS is unset (choice default is CFQ), which
           # compiles adios-iosched.o but never selects it at boot.
@@ -378,7 +389,7 @@ jobs:
             # TWRP ERROR 1 before the script runs. Dash only, no brackets.
             sed -i "s/kernel.string=.*/kernel.string=BakaSU Kernel ${BRANCH} for ${{ matrix.device }} - ${VARIANT_UC}/" out/img/anykernel.sh
             sed -i "s|## Kernel xiaomi sdm845.*|## Kernel xiaomi sdm845 (CAF 4.9.337) by RanggaWbp|" out/img/anykernel.sh
-            sed -i "s|## Features:.*|## Features: BakaSU + SUSFS + NoMount + BBG + DroidSpaces + ReKernel + NTSYNC + BORE + ADIOS + MGLRU + LZ4 + BBRv3 + POC Selector + Cambyses + Reflex|" out/img/anykernel.sh
+            sed -i "s|## Features:.*|## Features: BakaSU + SUSFS + NoMount + BBG + DroidSpaces + ReKernel + NTSYNC + BORE + ADIOS + MGLRU + LZ4 + LZ4KD + BBRv3 + POC Selector + Cambyses + Reflex|" out/img/anykernel.sh
             # Same class of failure as above, caught before zipping: TWRP only
             # reports "Updater process ended with ERROR: 1" with no line number,
             # so a syntax error has to be caught here instead of in the field.
@@ -512,10 +523,11 @@ jobs:
             echo "- **ADIOS** I/O scheduler (adaptive deadline)"
             echo "- **MGLRU** Multi-Gen LRU page reclaim (MGLRU v5 backport)"
             echo "- **LZ4** zram compressor (lz4 default, synced to upstream lib/lz4)"
+            echo "- **LZ4KD** zram compressor v1.3 (Huawei LZ4KD derivative, **selectable, not the default** -- switch with \`echo lz4kdr > /sys/block/zram0/comp_algorithm\` before init, or from Franco Kernel Manager)"
             echo "- **BBRv3** TCP congestion control (\`bbr3\`, **active by default**, coexists with \`bbr\` v1) + **PLB** load balancing"
             echo "- **POC Selector** v2.6.3 (Piece-Of-Cake idle CPU selector, capacity-class gated so it stays inside the target's cluster on big.LITTLE)"
             echo "- **Reflex** cpufreq governor v0.4.0 (schedutil + measured fast path for rising load, **active by default**)"
-            echo "- **Cambyses** CFS load balancer v0.6.0 (Masahito Suzuki: migration candidates compared directly against the remaining imbalance instead of halved, and a scan that admits nothing concedes to the cheapest overshoot so balancing still makes progress; **LB_STRICT_BUDGET active**, LB_ROTATE_BLOCK not ported)"
+            echo "- **Cambyses** CFS load balancer v0.6.0 (Masahito Suzuki: migration candidates compared directly against the remaining imbalance instead of halved, and a scan that admits nothing concedes to the cheapest overshoot so balancing still makes progress; **both LB_STRICT_BUDGET and LB_ROTATE_BLOCK active**)"
             echo
             echo "### BBRv3"
             echo "\`bbr3\` is the default congestion control in this image (\`CONFIG_DEFAULT_TCP_CONG=\"bbr3\"\`), so it is live from boot for every new connection — no sysctl needed."

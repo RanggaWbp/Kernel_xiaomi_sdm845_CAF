@@ -1649,6 +1649,19 @@ config CRYPTO_LZ4
 
 config CRYPTO_LZ4HC
 	tristate "LZ4HC compression algorithm"
+
+config CRYPTO_LZ4KDR
+	tristate "LZ4KDR compression algorithm"
+	select CRYPTO_ALGAPI
+	select CRYPTO_ACOMP2
+	select LZ4KDR_COMPRESS
+	select LZ4KDR_DECOMPRESS
+	help
+	  LZ4KDR is a speed-tuned derivative of Huawei's LZ4KD, a
+	  zram-oriented LZ4 variant whose on-wire format is kept. It is
+	  built in so that "lz4kdr" is offered by
+	  /sys/block/zram0/comp_algorithm, but it is not the default
+	  compressor -- LZ4 stays the default.
 	select CRYPTO_ALGAPI
 	select CRYPTO_ACOMP2
 	select LZ4HC_COMPRESS

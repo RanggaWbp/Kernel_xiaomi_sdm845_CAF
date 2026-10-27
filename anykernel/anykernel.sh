@@ -2,7 +2,7 @@
 ## osm0sis @ xda-developers
 ## Kernel xiaomi sdm845 (CAF 4.9.337) by RanggaWbp
 ##
-## Features: BakaSU + SUSFS + NoMount + BBG + DroidSpaces + ReKernel + NTSYNC + BORE + ADIOS + MGLRU + LZ4 + BBRv3 + POC Selector + Cambyses + Reflex
+## Features: BakaSU + SUSFS + NoMount + BBG + DroidSpaces + ReKernel + NTSYNC + BORE + ADIOS + MGLRU + LZ4 + LZ4KD + BBRv3 + POC Selector + Cambyses + Reflex
 ### AnyKernel properties
 # NOTE: only the key=value lines above this point are read as properties, and
 # they are read lowercase by update-binary's file_getprop. The shell variables
@@ -114,6 +114,7 @@ ui_print " Reflex       CPU frequency governor"
 ui_print " MGLRU        multigen page reclaim"
 ui_print " BBRv3        TCP congestion control"
 ui_print " LZ4          kernel compression"
+ui_print " LZ4KD        kernel compression, selectable"
 ui_print " ADIOS        I/O scheduler"
 ui_print " BakaSU       kernel root manager"
 ui_print " SUSFS        hides root from detection"
@@ -130,6 +131,10 @@ ui_print "--------------------------------------------------------"
 # On a stock vendor image the runtime value is therefore not guaranteed.
 ui_print " Reflex/ADIOS are kernel defaults; vendor may override"
 ui_print " tcp_congestion_control: bbr3"
+# LZ4KD is built in so "lz4kdr" appears in /sys/block/zram0/comp_algorithm,
+# but LZ4 stays the default compressor. Pick it by hand from Franco Kernel
+# Manager (or by writing the name before init starts), not by flashing this.
+ui_print " LZ4KD is selectable; LZ4 stays default"
 ui_print "--------------------------------------------------------"
 ## end properties
 
