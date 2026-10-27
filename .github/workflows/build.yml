@@ -210,6 +210,11 @@ jobs:
           # default compressor -- LZ4 stays default, LZ4KD is selected by
           # hand from Franco Kernel Manager.
           grep -q 'CONFIG_CRYPTO_LZ4KDR=y' out/.config || echo 'CONFIG_CRYPTO_LZ4KDR=y' >> out/.config
+          # LE9UO is ratio-based protection (ANON_MIN_RATIO / CLEAN_MIN_RATIO /
+          # CLEAN_LOW_RATIO), not a knob that can be left off: without the
+          # symbols the sysctls it documents never exist and the protection
+          # is silently absent.
+          grep -q 'CONFIG_ANON_MIN_RATIO=y' out/.config || echo 'CONFIG_ANON_MIN_RATIO=y' >> out/.config
           # BBRv3 must be BUILT IN (=y, not =m): the AK3 zip ships only
           # Image.gz-dtb, so a .ko would never reach the device. TCP_CONG_BBR3
           # lives inside `if TCP_CONG_ADVANCED`, so that must be on too.
@@ -249,6 +254,7 @@ jobs:
           check_symbol "CONFIG_CRYPTO_LZ4KDR" "y"
           check_symbol "CONFIG_LZ4KDR_COMPRESS" "y"
           check_symbol "CONFIG_LZ4KDR_DECOMPRESS" "y"
+          check_symbol "CONFIG_ANON_MIN_RATIO" "y"
           check_symbol "CONFIG_ZRAM" "y"
           check_symbol "CONFIG_TCP_CONG_ADVANCED" "y"
           check_symbol "CONFIG_TCP_CONG_BBR3" "y"
@@ -326,6 +332,13 @@ jobs:
           # LZ4KD: the crypto algorithm must really be built, not just =y in
           # .config, or "lz4kdr" never reaches comp_algorithm.
           test -f out/crypto/lz4kdr.o || { echo 'ERROR: lz4kdr.o not built'; exit 1; }
+          # All three VM patches land in mm/vmscan.c, which is now the single
+          # most exposed file in the tree: =y in .config with the code #ifdef'd
+          # out leaves the sysctls absent and raises no error anywhere. Prove
+          # the object exists, then prove each patch's identity is inside it
+          # rather than trusting the config line.
+          test -f out/mm/vmscan.o || { echo 'ERROR: vmscan.o not built'; exit 1; }
+          strings out/mm/vmscan.o | grep -q 'anon_min_ratio' || { echo 'ERROR: le9uo not compiled into vmscan.o'; exit 1; }
           # ADIOS must be the built-in default scheduler: IOSCHED_ADIOS can be
           # =y while DEFAULT_ADIOS is unset (choice default is CFQ), which
           # compiles adios-iosched.o but never selects it at boot.
@@ -423,7 +436,7 @@ jobs:
             # TWRP ERROR 1 before the script runs. Dash only, no brackets.
             sed -i "s/kernel.string=.*/kernel.string=BakaSU Kernel ${BRANCH} for ${{ matrix.device }} - ${VARIANT_UC}/" out/img/anykernel.sh
             sed -i "s|## Kernel xiaomi sdm845.*|## Kernel xiaomi sdm845 (CAF 4.9.337) by RanggaWbp|" out/img/anykernel.sh
-            sed -i "s|## Features:.*|## Features: BakaSU + SUSFS + NoMount + BBG + DroidSpaces + ReKernel + NTSYNC + BORE + ADIOS + MGLRU + LZ4 + LZ4KD + BBRv3 + POC Selector + Cambyses + Reflex|" out/img/anykernel.sh
+            sed -i "s|## Features:.*|## Features: BakaSU + SUSFS + NoMount + BBG + DroidSpaces + ReKernel + NTSYNC + BORE + ADIOS + MGLRU + LZ4 + LZ4KD + LE9UO + Re-swappiness + BBRv3 + POC Selector + Cambyses + Reflex|" out/img/anykernel.sh
             # Same class of failure as above, caught before zipping: TWRP only
             # reports "Updater process ended with ERROR: 1" with no line number,
             # so a syntax error has to be caught here instead of in the field.
@@ -558,6 +571,9 @@ jobs:
             echo "- **MGLRU** Multi-Gen LRU page reclaim (MGLRU v5 backport)"
             echo "- **LZ4** zram compressor (lz4 default, synced to upstream lib/lz4)"
             echo "- **LZ4KD** zram compressor v1.3 (Huawei LZ4KD derivative, **selectable, not the default** -- switch with \`echo lz4kdr > /sys/block/zram0/comp_algorithm\` before init, or from Franco Kernel Manager)"
+            echo "- **LE9UO** v1.15 ratio-based working-set protection (\`vm.anon_min_ratio\`, \`vm.clean_min_ratio\`, \`vm.clean_low_ratio\`)"
+            echo "- **Workingset protection** on by default (\`vm.workingset_protection=1\`)"
+            echo "- **Re-swappiness** v1.3 reworked swappiness heuristic (\`vm.swappiness\`, \`vm.direct_swappiness\`)"
             echo "- **BBRv3** TCP congestion control (\`bbr3\`, **active by default**, coexists with \`bbr\` v1) + **PLB** load balancing"
             echo "- **POC Selector** v2.6.3 (Piece-Of-Cake idle CPU selector, capacity-class gated so it stays inside the target's cluster on big.LITTLE)"
             echo "- **Reflex** cpufreq governor v0.4.0 (schedutil + measured fast path for rising load, **active by default**)"
