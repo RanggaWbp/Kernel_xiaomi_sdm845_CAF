@@ -293,12 +293,12 @@ struct mem_cgroup;
 #endif
 
 struct lrugen {
-	/* the aging increments the max generation number */
-	unsigned long max_seq;
+	/* the aging increments the youngest generation numbers */
+	unsigned long max_seq[ANON_AND_FILE];
 	/* the eviction increments the min generation numbers */
 	unsigned long min_seq[ANON_AND_FILE];
 	/* the birth time of each generation in jiffies */
-	unsigned long timestamps[MAX_NR_GENS];
+	unsigned long timestamps[ANON_AND_FILE][MAX_NR_GENS];
 	/* the multigenerational lru lists */
 	struct list_head lists[MAX_NR_GENS][ANON_AND_FILE][MAX_NR_ZONES];
 	/* the sizes of the multigenerational lru lists in pages */

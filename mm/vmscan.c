@@ -2437,6 +2437,11 @@ out:
 
 #ifdef CONFIG_LRU_GEN
 
+#define RESWAPPINESS_PROGNAME	"Re-swappiness: MGLRU anon/file independent aging"
+#define RESWAPPINESS_AUTHOR		"Masahito Suzuki"
+
+#define RESWAPPINESS_VERSION	"1.3"
+
 /******************************************************************************
  *                          shorthand helpers
  ******************************************************************************/
@@ -2454,7 +2459,10 @@ static inline struct mem_cgroup *lruvec_memcg_4_9(struct lruvec *lruvec)
 #endif
 
 #define DEFINE_MAX_SEQ(lruvec)						\
-	unsigned long max_seq = READ_ONCE((lruvec)->evictable.max_seq)
+	unsigned long max_seq[ANON_AND_FILE] = {				\
+		READ_ONCE((lruvec)->evictable.max_seq[LRU_GEN_ANON]),	\
+		READ_ONCE((lruvec)->evictable.max_seq[LRU_GEN_FILE]),	\
+	}
 
 #define DEFINE_MIN_SEQ(lruvec)						\
 	unsigned long min_seq[ANON_AND_FILE] = {			\
@@ -2504,14 +2512,15 @@ static struct lruvec *get_lruvec(int nid, struct mem_cgroup *memcg)
 
 static int get_nr_gens(struct lruvec *lruvec, int type)
 {
-	return lruvec->evictable.max_seq - lruvec->evictable.min_seq[type] + 1;
+	return lruvec->evictable.max_seq[type] - lruvec->evictable.min_seq[type] + 1;
 }
 
 static bool __maybe_unused seq_is_valid(struct lruvec *lruvec)
 {
-	return get_nr_gens(lruvec, 1) >= MIN_NR_GENS &&
-	       get_nr_gens(lruvec, 1) <= get_nr_gens(lruvec, 0) &&
-	       get_nr_gens(lruvec, 0) <= MAX_NR_GENS;
+	return get_nr_gens(lruvec, LRU_GEN_ANON) >= MIN_NR_GENS &&
+	       get_nr_gens(lruvec, LRU_GEN_ANON) <= MAX_NR_GENS &&
+	       get_nr_gens(lruvec, LRU_GEN_FILE) >= MIN_NR_GENS &&
+	       get_nr_gens(lruvec, LRU_GEN_FILE) <= MAX_NR_GENS;
 }
 
 /******************************************************************************
@@ -2586,8 +2595,10 @@ void lru_gen_add_mm(struct mm_struct *mm)
 		if (!lruvec)
 			continue;
 
-		if (lruvec->mm_walk.tail == &mm_list->fifo)
-			lruvec->mm_walk.tail = lruvec->mm_walk.tail->prev;
+		if (lruvec->mm_walk.tail[LRU_GEN_ANON] == &mm_list->fifo)
+			lruvec->mm_walk.tail[LRU_GEN_ANON] = lruvec->mm_walk.tail[LRU_GEN_ANON]->prev;
+		if (lruvec->mm_walk.tail[LRU_GEN_FILE] == &mm_list->fifo)
+			lruvec->mm_walk.tail[LRU_GEN_FILE] = lruvec->mm_walk.tail[LRU_GEN_FILE]->prev;
 	}
 
 	spin_unlock(&mm_list->lock);
@@ -2615,15 +2626,19 @@ void lru_gen_del_mm(struct mm_struct *mm)
 		if (!lruvec)
 			continue;
 
-		if (lruvec->mm_walk.tail == &mm->lrugen.list)
-			lruvec->mm_walk.tail = lruvec->mm_walk.tail->next;
+		int t;
 
-		if (lruvec->mm_walk.head != &mm->lrugen.list)
-			continue;
+		for (t = 0; t < ANON_AND_FILE; t++) {
+			if (lruvec->mm_walk.tail[t] == &mm->lrugen.list)
+				lruvec->mm_walk.tail[t] = lruvec->mm_walk.tail[t]->next;
 
-		lruvec->mm_walk.head = lruvec->mm_walk.head->next;
-		if (lruvec->mm_walk.head == &mm_list->fifo)
-			WRITE_ONCE(lruvec->mm_walk.seq, lruvec->mm_walk.seq + 1);
+			if (lruvec->mm_walk.head[t] != &mm->lrugen.list)
+				continue;
+
+			lruvec->mm_walk.head[t] = lruvec->mm_walk.head[t]->next;
+			if (lruvec->mm_walk.head[t] == &mm_list->fifo)
+				WRITE_ONCE(lruvec->mm_walk.seq[t], lruvec->mm_walk.seq[t] + 1);
+		}
 	}
 
 	list_del_init(&mm->lrugen.list);
@@ -2732,7 +2747,8 @@ static bool test_bloom_filter(struct lruvec *lruvec, unsigned long seq, void *it
 static void reset_mm_stats(struct lruvec *lruvec, bool last, struct mm_walk_args *args)
 {
 	int i;
-	int hist = lru_hist_from_seq(args->max_seq);
+	int type = args->aging_type;
+	int hist = lru_hist_from_seq(args->max_seq[type]);
 
 	lockdep_assert_held(&get_mm_list(lruvec_memcg_4_9(lruvec))->lock);
 
@@ -2745,7 +2761,7 @@ static void reset_mm_stats(struct lruvec *lruvec, bool last, struct mm_walk_args
 	if (!last || NR_HIST_GENS == 1)
 		return;
 
-	hist = lru_hist_from_seq(args->max_seq + 1);
+	hist = lru_hist_from_seq(args->max_seq[type] + 1);
 	for (i = 0; i < NR_MM_STATS; i++)
 		WRITE_ONCE(lruvec->mm_walk.stats[hist][i], 0);
 }
@@ -2785,39 +2801,40 @@ static bool get_next_mm(struct lruvec *lruvec, struct mm_walk_args *args,
 	bool first = false;
 	bool last = true;
 	struct mm_struct *mm = NULL;
+	int type = args->aging_type;
 	struct lru_gen_mm_walk *mm_walk = &lruvec->mm_walk;
 	struct lru_gen_mm_list *mm_list = get_mm_list(args->memcg);
 
 	if (*iter)
 		mmput_async(*iter);
-	else if (args->max_seq <= READ_ONCE(mm_walk->seq))
+	else if (args->max_seq[type] <= READ_ONCE(mm_walk->seq[type]))
 		return false;
 
 	spin_lock(&mm_list->lock);
 
-	VM_BUG_ON(args->max_seq > mm_walk->seq + 1);
-	VM_BUG_ON(*iter && args->max_seq < mm_walk->seq);
+	VM_BUG_ON(args->max_seq[type] > mm_walk->seq[type] + 1);
+	VM_BUG_ON(*iter && args->max_seq[type] < mm_walk->seq[type]);
 	VM_BUG_ON(*iter && !mm_walk->nr_walkers);
 
-	if (args->max_seq <= mm_walk->seq) {
+	if (args->max_seq[type] <= mm_walk->seq[type]) {
 		if (!*iter)
 			last = false;
 		goto done;
 	}
 
-	if (mm_walk->head == &mm_list->fifo) {
+	if (mm_walk->head[type] == &mm_list->fifo) {
 		VM_BUG_ON(mm_walk->nr_walkers);
-		mm_walk->head = mm_walk->head->next;
+		mm_walk->head[type] = mm_walk->head[type]->next;
 		first = true;
 	}
 
-	while (!mm && mm_walk->head != &mm_list->fifo) {
-		mm = list_entry(mm_walk->head, struct mm_struct, lrugen.list);
+	while (!mm && mm_walk->head[type] != &mm_list->fifo) {
+		mm = list_entry(mm_walk->head[type], struct mm_struct, lrugen.list);
 
-		mm_walk->head = mm_walk->head->next;
+		mm_walk->head[type] = mm_walk->head[type]->next;
 
-		if (mm_walk->tail == &mm->lrugen.list) {
-			mm_walk->tail = mm_walk->tail->next;
+		if (mm_walk->tail[type] == &mm->lrugen.list) {
+			mm_walk->tail[type] = mm_walk->tail[type]->next;
 			args->use_filter = false;
 		}
 
@@ -2825,8 +2842,8 @@ static bool get_next_mm(struct lruvec *lruvec, struct mm_walk_args *args,
 			mm = NULL;
 	}
 
-	if (mm_walk->head == &mm_list->fifo)
-		WRITE_ONCE(mm_walk->seq, mm_walk->seq + 1);
+	if (mm_walk->head[type] == &mm_list->fifo)
+		WRITE_ONCE(mm_walk->seq[type], mm_walk->seq[type] + 1);
 done:
 	if (*iter && !mm)
 		mm_walk->nr_walkers--;
@@ -2837,7 +2854,7 @@ done:
 		last = false;
 
 	if (mm && first)
-		clear_bloom_filter(lruvec, args->max_seq + 1);
+		clear_bloom_filter(lruvec, args->max_seq[type] + 1);
 
 	if (*iter || last)
 		reset_mm_stats(lruvec, last, args);
@@ -3033,7 +3050,7 @@ static void reset_batch_size(struct lruvec *lruvec, struct mm_walk_args *args)
 		WRITE_ONCE(lrugen->sizes[gen][type][zone],
 			   lrugen->sizes[gen][type][zone] + delta);
 
-		if (lru_gen_is_active(lruvec, gen))
+		if (lru_gen_is_active(lruvec, gen, type))
 			lru += LRU_ACTIVE;
 		/* node/zone only; per-memcg lru_zone_size is owned by lru_gen_update_size() */
 		__update_lru_size(lruvec, lru, zone, delta);
@@ -3051,7 +3068,7 @@ static int should_skip_vma(unsigned long start, unsigned long end, struct mm_wal
 		return true;
 
 	if (vma_is_anonymous(vma))
-		return !args->swappiness;
+		return args->aging_type == LRU_GEN_FILE || !args->swappiness;
 
 	if (WARN_ON_ONCE(!vma->vm_file || !vma->vm_file->f_mapping))
 		return true;
@@ -3060,7 +3077,15 @@ static int should_skip_vma(unsigned long start, unsigned long end, struct mm_wal
 	if (!mapping->a_ops->writepage)
 		return true;
 
-	return (shmem_mapping(mapping) && !args->swappiness) || mapping_unevictable(mapping);
+	/* shmem pages are anon for LRU purposes */
+	if (shmem_mapping(mapping))
+		return args->aging_type == LRU_GEN_FILE || !args->swappiness;
+
+	/* file VMA: skip when aging anon type */
+	if (args->aging_type == LRU_GEN_ANON)
+		return true;
+
+	return mapping_unevictable(mapping);
 }
 
 /*
@@ -3076,7 +3101,7 @@ static int walk_pte_range_4_9(pmd_t *pmd, unsigned long start, unsigned long end
 	unsigned long addr;
 	int worth = 0;
 	struct mm_walk_args *args = walk->private;
-	int old_gen, new_gen = lru_gen_from_seq(args->max_seq);
+	int old_gen, new_gen = lru_gen_from_seq(args->max_seq[args->aging_type]);
 
 	pte_t *pte0;
 
@@ -3145,7 +3170,7 @@ static int walk_pmd_range_4_9(pmd_t *pmd, unsigned long addr, unsigned long next
 
 	args->mm_stats[MM_NONLEAF_TOTAL]++;
 
-	if (args->use_filter && !test_bloom_filter(lruvec, args->max_seq, pmd))
+	if (args->use_filter && !test_bloom_filter(lruvec, args->max_seq[args->aging_type], pmd))
 		return 0;
 
 	args->mm_stats[MM_NONLEAF_PREV]++;
@@ -3155,7 +3180,7 @@ static int walk_pmd_range_4_9(pmd_t *pmd, unsigned long addr, unsigned long next
 
 	args->mm_stats[MM_NONLEAF_CUR]++;
 
-	set_bloom_filter(lruvec, args->max_seq + 1, pmd);
+	set_bloom_filter(lruvec, args->max_seq[args->aging_type] + 1, pmd);
 	return 0;
 }
 
@@ -3270,7 +3295,7 @@ static bool try_to_inc_min_seq(struct lruvec *lruvec, int swappiness)
 	VM_BUG_ON(!seq_is_valid(lruvec));
 
 	for (type = 0; type < ANON_AND_FILE; type++) {
-		while (lrugen->max_seq - min_seq[type] >= MIN_NR_GENS) {
+		while (lrugen->max_seq[type] - min_seq[type] >= MIN_NR_GENS) {
 			gen = lru_gen_from_seq(min_seq[type]);
 
 			for (zone = 0; zone < MAX_NR_ZONES; zone++) {
@@ -3284,9 +3309,12 @@ next:
 		;
 	}
 
-	min_seq[0] = min(min_seq[0], min_seq[1]);
-	if (swappiness)
-		min_seq[1] = max(min_seq[0], lrugen->min_seq[1]);
+	/*
+	 * Re-swappiness: min_seq[] are aged/evicted independently for anon and
+	 * file; the old cross-type sync (which forced min_seq[0] == min_seq[1]
+	 * under swappiness) is intentionally removed so each type keeps its own
+	 * eviction window.
+	 */
 
 	for (type = 0; type < ANON_AND_FILE; type++) {
 		if (min_seq[type] == lrugen->min_seq[type])
@@ -3301,71 +3329,64 @@ next:
 	return success;
 }
 
-static void inc_max_seq(struct lruvec *lruvec, unsigned long max_seq)
+static void inc_max_seq(struct lruvec *lruvec, unsigned long max_seq, int type)
 {
-	int gen, type, zone;
+	int gen, zone;
 	struct lrugen *lrugen = &lruvec->evictable;
 
 	spin_lock_irq(&lruvec_pgdat(lruvec)->lru_lock);
 
 	VM_BUG_ON(!seq_is_valid(lruvec));
 
-	if (max_seq != lrugen->max_seq)
+	if (max_seq != lrugen->max_seq[type])
 		goto unlock;
 
 	if (!try_to_inc_min_seq(lruvec, true)) {
-		for (type = ANON_AND_FILE - 1; type >= 0; type--) {
-			while (!inc_min_seq(lruvec, type)) {
-				spin_unlock_irq(&lruvec_pgdat(lruvec)->lru_lock);
-				cond_resched();
-				spin_lock_irq(&lruvec_pgdat(lruvec)->lru_lock);
-			}
+		while (!inc_min_seq(lruvec, type)) {
+			spin_unlock_irq(&lruvec_pgdat(lruvec)->lru_lock);
+			cond_resched();
+			spin_lock_irq(&lruvec_pgdat(lruvec)->lru_lock);
 		}
 	}
 
-	gen = lru_gen_from_seq(lrugen->max_seq - 1);
-	for (type = 0; type < ANON_AND_FILE; type++) {
-		for (zone = 0; zone < MAX_NR_ZONES; zone++) {
-			enum lru_list lru = type * LRU_FILE;
-			long delta = lrugen->sizes[gen][type][zone];
+	gen = lru_gen_from_seq(lrugen->max_seq[type] - 1);
+	for (zone = 0; zone < MAX_NR_ZONES; zone++) {
+		enum lru_list lru = type * LRU_FILE;
+		long delta = lrugen->sizes[gen][type][zone];
 
-			if (!delta)
-				continue;
+		if (!delta)
+			continue;
 
-			WARN_ON_ONCE(delta != (int)delta);
+		WARN_ON_ONCE(delta != (int)delta);
 
-			/*
-			 * Node/zone counters only. lru_zone_size per memcg is
-			 * maintained by lru_gen_update_size(); this path must not
-			 * touch it or it underflows (lru_size -456 observed).
-			 */
-			__update_lru_size(lruvec, lru, zone, delta);
-			__update_lru_size(lruvec, lru + LRU_ACTIVE, zone, -delta);
-		}
+		/*
+		 * Node/zone counters only. lru_zone_size per memcg is
+		 * maintained by lru_gen_update_size(); this path must not
+		 * touch it or it underflows (lru_size -456 observed).
+		 */
+		__update_lru_size(lruvec, lru, zone, delta);
+		__update_lru_size(lruvec, lru + LRU_ACTIVE, zone, -delta);
 	}
 
-	gen = lru_gen_from_seq(lrugen->max_seq + 1);
-	for (type = 0; type < ANON_AND_FILE; type++) {
-		for (zone = 0; zone < MAX_NR_ZONES; zone++) {
-			enum lru_list lru = type * LRU_FILE;
-			long delta = lrugen->sizes[gen][type][zone];
+	gen = lru_gen_from_seq(lrugen->max_seq[type] + 1);
+	for (zone = 0; zone < MAX_NR_ZONES; zone++) {
+		enum lru_list lru = type * LRU_FILE;
+		long delta = lrugen->sizes[gen][type][zone];
 
-			if (!delta)
-				continue;
+		if (!delta)
+			continue;
 
-			WARN_ON_ONCE(delta != (int)delta);
+		WARN_ON_ONCE(delta != (int)delta);
 
-			__update_lru_size(lruvec, lru, zone, -delta);
-			__update_lru_size(lruvec, lru + LRU_ACTIVE, zone, delta);
-		}
+		__update_lru_size(lruvec, lru, zone, -delta);
+		__update_lru_size(lruvec, lru + LRU_ACTIVE, zone, delta);
 	}
 
-	for (type = 0; type < ANON_AND_FILE; type++)
-		reset_ctrl_pos(lruvec, gen, type);
+	reset_ctrl_pos(lruvec, gen, type);
 
-	WRITE_ONCE(lrugen->timestamps[gen], jiffies);
+	WRITE_ONCE(lrugen->timestamps[type][gen], jiffies);
 	/* make sure all preceding modifications appear first */
-	smp_store_release(&lrugen->max_seq, lrugen->max_seq + 1);
+	smp_store_release(&lrugen->max_seq[type], lrugen->max_seq[type] + 1);
 unlock:
 	spin_unlock_irq(&lruvec_pgdat(lruvec)->lru_lock);
 }
