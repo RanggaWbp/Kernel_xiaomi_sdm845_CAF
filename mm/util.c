@@ -507,9 +507,16 @@ unsigned long sysctl_admin_reserve_kbytes __read_mostly; /* 0MB */
  * This is the ONE definition of the symbol; mm/vmscan.c only consumes it.
  */
 bool sysctl_workingset_protection __read_mostly = true;
-u8 sysctl_anon_min_ratio __read_mostly = CONFIG_ANON_MIN_RATIO;
-u8 sysctl_clean_low_ratio __read_mostly = CONFIG_CLEAN_LOW_RATIO;
-u8 sysctl_clean_min_ratio __read_mostly = CONFIG_CLEAN_MIN_RATIO;
+/*
+ * 4.9 adaptation: upstream le9uo declares these u8 and uses
+ * proc_dou8vec_minmax + SYSCTL_ZERO/SYSCTL_ONE_HUNDRED, none of which exist
+ * on 4.9 -- and 4.9's intvec machinery always reads/writes sizeof(int), so a
+ * u8 variable would be read and written 4 bytes wide. int keeps the sysctl
+ * honest; the 0..100 range is clamped in the handler in mm/vmscan.c.
+ */
+int sysctl_anon_min_ratio __read_mostly = CONFIG_ANON_MIN_RATIO;
+int sysctl_clean_low_ratio __read_mostly = CONFIG_CLEAN_LOW_RATIO;
+int sysctl_clean_min_ratio __read_mostly = CONFIG_CLEAN_MIN_RATIO;
 
 int overcommit_ratio_handler(struct ctl_table *table, int write,
 			     void __user *buffer, size_t *lenp,

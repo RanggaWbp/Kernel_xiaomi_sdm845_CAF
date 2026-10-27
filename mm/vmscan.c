@@ -175,6 +175,152 @@ struct scan_control {
 #endif
 
 /*
+ * le9uo working set protection (firelzrd v1.15).
+ *
+ * The four knobs are defined in mm/util.c; these are the cached node totals
+ * they resolve to and the write handlers that invalidate them. They live here,
+ * next to prepare_workingset_protection(), their only consumer.
+ *
+ * MIN_SWAPPINESS / MAX_SWAPPINESS are upstream's names for the 0..100 range of
+ * vm_swappiness; 4.9 spells the range out in the comment below instead.
+ */
+#define MIN_SWAPPINESS			0
+#define MAX_SWAPPINESS			100
+
+/*
+ * Cached node totals, in pages. Rebuilt lazily whenever totalram changes (or
+ * a knob is written), because node_page_state() is far too hot to call per
+ * page on the reclaim path.
+ */
+static unsigned long sysctl_anon_min_ratio_kb __read_mostly;
+static unsigned long sysctl_clean_low_ratio_kb __read_mostly;
+static unsigned long sysctl_clean_min_ratio_kb __read_mostly;
+static unsigned long workingset_protection_prev_totalram __read_mostly;
+
+/*
+ * 4.9 adaptation: upstream uses proc_dou8vec_minmax with extra1/extra2 for the
+ * range. Neither the handler nor the SYSCTL_ZERO / SYSCTL_ONE_HUNDRED helpers
+ * exist here, so the 0..100 range is clamped after proc_dointvec() instead.
+ */
+int vm_workingset_protection_update_handler(struct ctl_table *table, int write,
+		void __user *buffer, size_t *lenp, loff_t *ppos)
+{
+	int *data = (int *)table->data;
+	int ret;
+
+	ret = proc_dointvec(table, write, buffer, lenp, ppos);
+	if (ret || !write)
+		return ret;
+
+	if (*data < 0)
+		*data = 0;
+	else if (*data > 100)
+		*data = 100;
+
+	workingset_protection_prev_totalram = 0;
+
+	return 0;
+}
+
+/*
+ * Upstream wires the bool knob straight to proc_dobool. This wrapper only adds
+ * the cache invalidation, so toggling the master switch re-resolves the ratios
+ * on the next reclaim pass.
+ */
+int vm_workingset_protection_bool_handler(struct ctl_table *table, int write,
+		void __user *buffer, size_t *lenp, loff_t *ppos)
+{
+	int ret;
+
+	ret = proc_dobool(table, write, buffer, lenp, ppos);
+	if (ret || !write)
+		return ret;
+
+	workingset_protection_prev_totalram = 0;
+
+	return 0;
+}
+
+static void prepare_workingset_protection(pg_data_t *pgdat,
+		struct scan_control *sc)
+{
+	unsigned long node_mem_total;
+	struct sysinfo i;
+
+	if (!sysctl_workingset_protection) {
+		sc->anon_below_min = 0;
+		sc->clean_below_low = 0;
+		sc->clean_below_min = 0;
+		return;
+	}
+
+	if (likely(sysctl_anon_min_ratio ||
+	           sysctl_clean_low_ratio ||
+		   sysctl_clean_min_ratio)) {
+#ifdef CONFIG_NUMA
+		si_meminfo_node(&i, pgdat->node_id);
+#else
+		si_meminfo(&i);
+#endif
+		node_mem_total = i.totalram;
+
+		if (unlikely(workingset_protection_prev_totalram != node_mem_total)) {
+			sysctl_anon_min_ratio_kb  =
+				node_mem_total * sysctl_anon_min_ratio / 100;
+			sysctl_clean_low_ratio_kb =
+				node_mem_total * sysctl_clean_low_ratio / 100;
+			sysctl_clean_min_ratio_kb =
+				node_mem_total * sysctl_clean_min_ratio / 100;
+			workingset_protection_prev_totalram = node_mem_total;
+		}
+	}
+
+	/*
+	 * Check the number of anonymous pages to protect them from
+	 * reclaiming if their amount is below the specified.
+	 */
+	if (sysctl_anon_min_ratio) {
+		unsigned long reclaimable_anon;
+
+		reclaimable_anon =
+			node_page_state(pgdat, NR_ACTIVE_ANON) +
+			node_page_state(pgdat, NR_INACTIVE_ANON) +
+			node_page_state(pgdat, NR_ISOLATED_ANON);
+
+		sc->anon_below_min = reclaimable_anon < sysctl_anon_min_ratio_kb;
+	} else
+		sc->anon_below_min = 0;
+
+	/*
+	 * Check the number of clean file pages to protect them from
+	 * reclaiming if their amount is below the specified.
+	 */
+	if (sysctl_clean_low_ratio || sysctl_clean_min_ratio) {
+		unsigned long reclaimable_file, dirty, clean;
+
+		reclaimable_file =
+			node_page_state(pgdat, NR_ACTIVE_FILE) +
+			node_page_state(pgdat, NR_INACTIVE_FILE) +
+			node_page_state(pgdat, NR_ISOLATED_FILE);
+		dirty = node_page_state(pgdat, NR_FILE_DIRTY);
+		/*
+		 * node_page_state() sum can go out of sync since
+		 * all the values are not read at once.
+		 */
+		if (likely(reclaimable_file > dirty))
+			clean = reclaimable_file - dirty;
+		else
+			clean = 0;
+
+		sc->clean_below_low = clean < sysctl_clean_low_ratio_kb;
+		sc->clean_below_min = clean < sysctl_clean_min_ratio_kb;
+	} else {
+		sc->clean_below_low = 0;
+		sc->clean_below_min = 0;
+	}
+}
+
+/*
  * From 0 .. 100.  Higher means more swappy.
  */
 
@@ -1030,6 +1176,16 @@ static unsigned long shrink_page_list(struct list_head *page_list,
 			goto cull_mlocked;
 
 		if (!sc->may_unmap && page_mapped(page))
+			goto keep_locked;
+
+		/*
+		 * le9uo: hard protection of the working set. Keep a file page
+		 * when clean file is below vm.clean_min_ratio, and an anon page
+		 * when anon is below vm.anon_min_ratio but clean file is not
+		 * also below its floor.
+		 */
+		if (page_is_file_cache(page) ? sc->clean_below_min :
+				(sc->anon_below_min && !sc->clean_below_min))
 			goto keep_locked;
 
 		/* Double the slab pressure for mapped and swapcache pages */
@@ -2350,6 +2506,13 @@ static void get_scan_count(struct lruvec *lruvec, struct mem_cgroup *memcg,
 		goto out;
 	}
 
+	/*
+	 * le9uo: force-scan anon if the clean file pages on this node are
+	 * below vm.clean_low_ratio or vm.clean_min_ratio.
+	 */
+	if (sc->clean_below_low || sc->clean_below_min)
+		scan_balance = SCAN_ANON;
+
 	scan_balance = SCAN_FRACT;
 
 	/*
@@ -2442,6 +2605,14 @@ out:
 			/* Look ma, no brain */
 			BUG();
 		}
+
+		/*
+		 * le9uo: hard protection of the working set. Don't reclaim
+		 * anon/file pages when the amount of the same type is below
+		 * the watermark of that type.
+		 */
+		if (file ? sc->clean_below_min : sc->anon_below_min)
+			scan = 0;
 
 		*lru_pages += size;
 		nr[lru] = scan;
@@ -2635,11 +2806,10 @@ void lru_gen_del_mm(struct mm_struct *mm)
 
 	for_each_node(nid) {
 		struct lruvec *lruvec = get_lruvec(nid, memcg);
+		int t;
 
 		if (!lruvec)
 			continue;
-
-		int t;
 
 		for (t = 0; t < ANON_AND_FILE; t++) {
 			if (lruvec->mm_walk.tail[t] == &mm->lrugen.list)
@@ -3406,7 +3576,7 @@ unlock:
 
 /* Main function used by the foreground, the background and the user-triggered aging. */
 static bool try_to_inc_max_seq(struct lruvec *lruvec, struct scan_control *sc, int swappiness,
-			       unsigned long max_seq, bool use_filter)
+			       unsigned long max_seq, int type, bool use_filter)
 {
 	bool last;
 	struct mm_walk_args *args;
@@ -3416,7 +3586,7 @@ static bool try_to_inc_max_seq(struct lruvec *lruvec, struct scan_control *sc, i
 	struct pglist_data *pgdat = lruvec_pgdat(lruvec);
 	int nid = pgdat->node_id;
 
-	VM_BUG_ON(max_seq > READ_ONCE(lrugen->max_seq));
+	VM_BUG_ON(max_seq > READ_ONCE(lrugen->max_seq[type]));
 
 	/*
 	 * If we are not from run_aging() and clearing the accessed bit may
@@ -3428,7 +3598,7 @@ static bool try_to_inc_max_seq(struct lruvec *lruvec, struct scan_control *sc, i
 	/* 4.9 arm64 has no ARM64_HW_AF cap: arch_has_hw_pte_young() is always
 	 * false here, so the conservative path is always taken. */
 	if ((current->flags & PF_MEMALLOC) && !arch_has_hw_pte_young(false)) {
-		inc_max_seq(lruvec, max_seq);
+		inc_max_seq(lruvec, max_seq, type);
 		return true;
 	}
 
@@ -3437,7 +3607,9 @@ static bool try_to_inc_max_seq(struct lruvec *lruvec, struct scan_control *sc, i
 		return false;
 
 	args->memcg = memcg;
-	args->max_seq = max_seq;
+	args->max_seq[type] = max_seq;
+	/* the walk ages exactly this type; should_skip_vma() reads it */
+	args->aging_type = type;
 	args->start_pfn = pgdat->node_start_pfn;
 	args->end_pfn = pgdat_end_pfn(pgdat);
 	args->node_id = nid;
@@ -3458,14 +3630,14 @@ static bool try_to_inc_max_seq(struct lruvec *lruvec, struct scan_control *sc, i
 		/* don't wait unless we may have trouble reclaiming */
 		if (!current_is_kswapd() && sc->priority < DEF_PRIORITY - 2)
 			wait_event_killable(lruvec->mm_walk.wait,
-					    max_seq < READ_ONCE(lrugen->max_seq));
+					    max_seq < READ_ONCE(lrugen->max_seq[type]));
 
-		return max_seq < READ_ONCE(lrugen->max_seq);
+		return max_seq < READ_ONCE(lrugen->max_seq[type]);
 	}
 
-	VM_BUG_ON(max_seq != READ_ONCE(lrugen->max_seq));
+	VM_BUG_ON(max_seq != READ_ONCE(lrugen->max_seq[type]));
 
-	inc_max_seq(lruvec, max_seq);
+	inc_max_seq(lruvec, max_seq, type);
 	/* either we see any waiters or they will see updated max_seq */
 	if (wq_has_sleeper(&lruvec->mm_walk.wait))
 		wake_up_all(&lruvec->mm_walk.wait);
@@ -3520,8 +3692,9 @@ static bool age_lruvec(struct lruvec *lruvec, struct scan_control *sc,
 		return false;
 
 	if (min_ttl) {
-		int gen = lru_gen_from_seq(min_seq[1]);
-		unsigned long birth = READ_ONCE(lruvec->evictable.timestamps[gen]);
+		int gen = lru_gen_from_seq(min_seq[LRU_GEN_FILE]);
+		unsigned long birth =
+			READ_ONCE(lruvec->evictable.timestamps[LRU_GEN_FILE][gen]);
 
 		if (time_is_after_jiffies(birth + min_ttl))
 			return false;
@@ -3536,8 +3709,24 @@ static bool age_lruvec(struct lruvec *lruvec, struct scan_control *sc,
 	if (!mem_cgroup_online(memcg))
 		nr_to_scan++;
 
-	if (nr_to_scan && low)
-		try_to_inc_max_seq(lruvec, sc, swappiness, max_seq, true);
+	/*
+	 * Per-type independent aging: age only the types that actually need
+	 * it. Aging a type that already has enough evictable generations
+	 * would forcibly drain its oldest gen via inc_min_seq() and disrupt
+	 * eviction progress, especially when the other type is stuck (e.g.
+	 * file cache protected by le9uo).
+	 */
+	if (nr_to_scan && low) {
+		int type;
+
+		for (type = !swappiness; type < ANON_AND_FILE; type++) {
+			if (min_seq[type] + MIN_NR_GENS < max_seq[type])
+				continue;
+
+			try_to_inc_max_seq(lruvec, sc, swappiness,
+					   max_seq[type], type, true);
+		}
+	}
 
 	return true;
 }
@@ -3766,11 +3955,33 @@ static int get_tier_idx(struct lruvec *lruvec, int type)
 	return tier - 1;
 }
 
-static int get_type_to_scan(struct lruvec *lruvec, int swappiness, int *tier_idx)
+static int get_type_to_scan(struct lruvec *lruvec, struct scan_control *sc,
+		int swappiness, int *tier_idx)
 {
 	int type, tier;
 	struct ctrl_pos sp, pv;
 	int gain[ANON_AND_FILE] = { swappiness, 200 - swappiness };
+
+	/*
+	 * le9uo: when the node is below one of the working-set floors, skip the
+	 * refault heuristic entirely and go straight to the other type.
+	 * tier_idx is pinned to the base tier -- upstream returns without
+	 * setting it at all, which would leave it uninitialised here.
+	 */
+	*tier_idx = 0;
+
+	if (swappiness == MIN_SWAPPINESS)
+		return LRU_GEN_FILE;
+
+	if (sc->clean_below_min)
+		return LRU_GEN_ANON;
+	if (sc->anon_below_min)
+		return LRU_GEN_FILE;
+	if (sc->clean_below_low)
+		return LRU_GEN_ANON;
+
+	if (swappiness == MIN_SWAPPINESS + 1)
+		return LRU_GEN_FILE;
 
 	/*
 	 * Compare refaulted % between the base tiers of anon and file to
@@ -3820,7 +4031,7 @@ static int isolate_pages(struct lruvec *lruvec, struct scan_control *sc, int swa
 	else if (swappiness == 200)
 		type = 0;
 	else
-		type = get_type_to_scan(lruvec, swappiness, &tier);
+		type = get_type_to_scan(lruvec, sc, swappiness, &tier);
 
 	for (i = !swappiness; i < ANON_AND_FILE; i++) {
 		if (tier < 0)
@@ -3936,7 +4147,7 @@ static long get_nr_to_scan(struct lruvec *lruvec, struct scan_control *sc, int s
 
 	if (current_is_kswapd()) {
 		/* leave the work to lru_gen_age_node() */
-		if (max_seq - min_seq[1] < MIN_NR_GENS)
+		if (max_seq[LRU_GEN_FILE] - min_seq[LRU_GEN_FILE] < MIN_NR_GENS)
 			return 0;
 
 		if (!low)
@@ -3945,7 +4156,7 @@ static long get_nr_to_scan(struct lruvec *lruvec, struct scan_control *sc, int s
 		return nr_to_scan;
 	}
 
-	if (max_seq - min_seq[1] >= MIN_NR_GENS)
+	if (max_seq[LRU_GEN_FILE] - min_seq[LRU_GEN_FILE] >= MIN_NR_GENS)
 		return nr_to_scan;
 
 	/* move onto slab and other memcgs if we haven't tried them all */
@@ -3954,7 +4165,22 @@ static long get_nr_to_scan(struct lruvec *lruvec, struct scan_control *sc, int s
 		return 0;
 	}
 
-	return try_to_inc_max_seq(lruvec, sc, swappiness, max_seq, true) ? nr_to_scan : 0;
+		{
+		bool aged = false;
+		int type;
+
+		for (type = !swappiness; type < ANON_AND_FILE; type++) {
+			/* per-type independent aging, see age_lruvec() */
+			if (min_seq[type] + MIN_NR_GENS < max_seq[type])
+				continue;
+
+			if (try_to_inc_max_seq(lruvec, sc, swappiness,
+					       max_seq[type], type, true))
+				aged = true;
+		}
+
+		return aged ? nr_to_scan : 0;
+	}
 }
 
 /* Returns the number of pages MGLRU actually scanned for this lruvec. */
@@ -3965,6 +4191,8 @@ static unsigned long lru_gen_shrink_lruvec(struct lruvec *lruvec,
 	long scanned = 0;
 	struct mem_cgroup *memcg = lruvec_memcg_4_9(lruvec);
 	struct pglist_data *pgdat = lruvec_pgdat(lruvec);
+
+	prepare_workingset_protection(pgdat, sc);
 
 	lru_add_drain();
 
@@ -4297,7 +4525,7 @@ static void *lru_gen_seq_next(struct seq_file *m, void *v, loff_t *pos)
 }
 
 static void lru_gen_seq_show_full(struct seq_file *m, struct lruvec *lruvec,
-				  unsigned long max_seq, unsigned long *min_seq,
+				  unsigned long *max_seq, unsigned long *min_seq,
 				  unsigned long seq)
 {
 	int i;
@@ -4310,7 +4538,8 @@ static void lru_gen_seq_show_full(struct seq_file *m, struct lruvec *lruvec,
 		for (type = 0; type < ANON_AND_FILE; type++) {
 			unsigned long n[3] = {};
 
-			if (seq == max_seq) {
+			if (seq == max(max_seq[LRU_GEN_ANON],
+				       max_seq[LRU_GEN_FILE])) {
 				n[0] = READ_ONCE(lrugen->avg_refaulted[type][tier]);
 				n[1] = READ_ONCE(lrugen->avg_total[type][tier]);
 
@@ -4330,10 +4559,13 @@ static void lru_gen_seq_show_full(struct seq_file *m, struct lruvec *lruvec,
 
 	seq_puts(m, "                      ");
 	for (i = 0; i < NR_MM_STATS; i++) {
-		if (seq == max_seq && NR_HIST_GENS == 1)
+		if (seq == max(max_seq[LRU_GEN_ANON], max_seq[LRU_GEN_FILE]) &&
+		    NR_HIST_GENS == 1)
 			seq_printf(m, " %10lu%c", READ_ONCE(lruvec->mm_walk.stats[hist][i]),
 				   toupper(MM_STAT_CODES[i]));
-		else if (seq != max_seq && NR_HIST_GENS > 1)
+		else if (seq != max(max_seq[LRU_GEN_ANON],
+				    max_seq[LRU_GEN_FILE]) &&
+			 NR_HIST_GENS > 1)
 			seq_printf(m, " %10lu%c", READ_ONCE(lruvec->mm_walk.stats[hist][i]),
 				   MM_STAT_CODES[i]);
 		else
@@ -4365,19 +4597,36 @@ static int lru_gen_seq_show(struct seq_file *m, void *v)
 
 	seq_printf(m, " node %5d\n", nid);
 
-	if (!full)
-		seq = min_seq[0];
-	else if (max_seq >= MAX_NR_GENS)
-		seq = max_seq - MAX_NR_GENS + 1;
-	else
-		seq = 0;
+	{
+		unsigned long max_seq_val =
+			max(max_seq[LRU_GEN_ANON], max_seq[LRU_GEN_FILE]);
 
-	for (; seq <= max_seq; seq++) {
-		int gen, type, zone;
-		unsigned int msecs;
+		if (!full)
+			seq = min_seq[0];
+		else if (max_seq_val >= MAX_NR_GENS)
+			seq = max_seq_val - MAX_NR_GENS + 1;
+		else
+			seq = 0;
 
-		gen = lru_gen_from_seq(seq);
-		msecs = jiffies_to_msecs(jiffies - READ_ONCE(lrugen->timestamps[gen]));
+		for (; seq <= max_seq_val; seq++) {
+			int gen, type, zone;
+			unsigned int msecs;
+
+			gen = lru_gen_from_seq(seq);
+			/* show the older birth time among evictable types */
+			{
+				unsigned long birth = jiffies;
+				int t;
+
+				for (t = 0; t < ANON_AND_FILE; t++) {
+					unsigned long ts =
+						READ_ONCE(lrugen->timestamps[t][gen]);
+
+					if (time_before(ts, birth))
+						birth = ts;
+				}
+				msecs = jiffies_to_msecs(jiffies - birth);
+			}
 
 		seq_printf(m, " %10lu %10u", seq, msecs);
 
@@ -4400,6 +4649,7 @@ static int lru_gen_seq_show(struct seq_file *m, void *v)
 		if (full)
 			lru_gen_seq_show_full(m, lruvec, max_seq, min_seq, seq);
 	}
+	}
 
 	return 0;
 }
@@ -4414,12 +4664,20 @@ static const struct seq_operations lru_gen_seq_ops = {
 static int run_aging(struct lruvec *lruvec, struct scan_control *sc, int swappiness,
 		     unsigned long seq, bool use_filter)
 {
+	unsigned long max_seq_val;
 	DEFINE_MAX_SEQ(lruvec);
 
-	if (seq == max_seq)
-		try_to_inc_max_seq(lruvec, sc, swappiness, max_seq, use_filter);
+	max_seq_val = max(max_seq[LRU_GEN_ANON], max_seq[LRU_GEN_FILE]);
 
-	return seq > max_seq ? -EINVAL : 0;
+	if (seq == max_seq_val) {
+		int type;
+
+		for (type = !swappiness; type < ANON_AND_FILE; type++)
+			try_to_inc_max_seq(lruvec, sc, swappiness,
+					   max_seq[type], type, use_filter);
+	}
+
+	return seq > max_seq_val ? -EINVAL : 0;
 }
 
 static int run_eviction(struct lruvec *lruvec, struct scan_control *sc, int swappiness,
@@ -4427,9 +4685,12 @@ static int run_eviction(struct lruvec *lruvec, struct scan_control *sc, int swap
 {
 	struct blk_plug plug;
 	int err = -EINTR;
+	unsigned long max_seq_val;
 	DEFINE_MAX_SEQ(lruvec);
 
-	if (seq >= max_seq - 1)
+	max_seq_val = max(max_seq[LRU_GEN_ANON], max_seq[LRU_GEN_FILE]);
+
+	if (seq >= max_seq_val - 1)
 		return -EINVAL;
 
 	sc->nr_reclaimed = 0;
@@ -4604,12 +4865,14 @@ void lru_gen_init_state(struct mem_cgroup *memcg, struct lruvec *lruvec)
 	struct lrugen *lrugen = &lruvec->evictable;
 	struct lru_gen_mm_list *mm_list = get_mm_list(memcg);
 
-	lrugen->max_seq = MIN_NR_GENS + 1;
+	for (i = 0; i < ANON_AND_FILE; i++)
+		lrugen->max_seq[i] = MIN_NR_GENS + 1;
 	lrugen->enabled[0] = lru_gen_enabled() && lru_gen_nr_swapfiles;
 	lrugen->enabled[1] = lru_gen_enabled();
 
 	for (i = 0; i <= MIN_NR_GENS + 1; i++)
-		lrugen->timestamps[i] = jiffies;
+		for (type = 0; type < ANON_AND_FILE; type++)
+			lrugen->timestamps[type][i] = jiffies;
 
 	for_each_gen_type_zone(gen, type, zone)
 		INIT_LIST_HEAD(&lrugen->lists[gen][type][zone]);
@@ -4617,9 +4880,11 @@ void lru_gen_init_state(struct mem_cgroup *memcg, struct lruvec *lruvec)
 	if (IS_ENABLED(CONFIG_MEMORY_HOTPLUG) && !memcg)
 		spin_lock(&mm_list->lock);
 
-	lruvec->mm_walk.seq = MIN_NR_GENS;
-	lruvec->mm_walk.head = &mm_list->fifo;
-	lruvec->mm_walk.tail = &mm_list->fifo;
+	for (type = 0; type < ANON_AND_FILE; type++) {
+		lruvec->mm_walk.seq[type] = MIN_NR_GENS;
+		lruvec->mm_walk.head[type] = &mm_list->fifo;
+		lruvec->mm_walk.tail[type] = &mm_list->fifo;
+	}
 	init_waitqueue_head(&lruvec->mm_walk.wait);
 
 	if (IS_ENABLED(CONFIG_MEMORY_HOTPLUG) && !memcg)
@@ -4908,6 +5173,8 @@ static bool shrink_node(pg_data_t *pgdat, struct scan_control *sc)
 	struct reclaim_state *reclaim_state = current->reclaim_state;
 	unsigned long nr_reclaimed, nr_scanned;
 	bool reclaimable = false;
+
+	prepare_workingset_protection(pgdat, sc);
 
 	do {
 		struct mem_cgroup *root = sc->target_mem_cgroup;

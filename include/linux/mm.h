@@ -117,14 +117,20 @@ extern int sysctl_max_map_count;
  * le9uo (workingset protection) - see mm/util.c and mm/vmscan.c
  */
 extern bool sysctl_workingset_protection;
-extern u8 sysctl_anon_min_ratio;
-extern u8 sysctl_clean_low_ratio;
-extern u8 sysctl_clean_min_ratio;
+/* 4.9 adaptation: int, not u8 -- 4.9's intvec sysctls read/write sizeof(int) */
+extern int sysctl_anon_min_ratio;
+extern int sysctl_clean_low_ratio;
+extern int sysctl_clean_min_ratio;
+/*
+ * 4.9's proc_handler typedef takes a non-const struct ctl_table *, so these
+ * drop the const upstream le9uo uses (with -Werror the const form is an
+ * incompatible-function-pointer-types error on this tree).
+ */
 int vm_workingset_protection_update_handler(
-	const struct ctl_table *table, int write,
+	struct ctl_table *table, int write,
 	void __user *buffer, size_t *lenp, loff_t *ppos);
 int vm_workingset_protection_bool_handler(
-	const struct ctl_table *table, int write,
+	struct ctl_table *table, int write,
 	void __user *buffer, size_t *lenp, loff_t *ppos);
 
 extern unsigned long sysctl_user_reserve_kbytes;
