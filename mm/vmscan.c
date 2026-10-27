@@ -162,6 +162,15 @@ struct scan_control {
 #endif
 
 /*
+ * Backport of "vm.workingset_protection: On by default".
+ *
+ * When the workingset protection logic (le9uo) is present this knob gates
+ * hard protection of the working set during reclaim; it defaults to enabled
+ * here, matching upstream's on-by-default behaviour.
+ */
+bool sysctl_workingset_protection __read_mostly = true;
+
+/*
  * From 0 .. 100.  Higher means more swappy.
  */
 
