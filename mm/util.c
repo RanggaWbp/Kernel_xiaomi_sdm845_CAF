@@ -506,7 +506,12 @@ unsigned long sysctl_admin_reserve_kbytes __read_mostly; /* 0MB */
  * Default is on, per firelzrd's "vm.workingset_protection: On by default".
  * This is the ONE definition of the symbol; mm/vmscan.c only consumes it.
  */
-bool sysctl_workingset_protection __read_mostly = true;
+/*
+ * 4.9 adaptation: int, not bool -- proc_dobool does not exist in this tree and
+ * 4.9's intvec sysctls read/write sizeof(int). The handler normalises it to
+ * 0/1, and every consumer only tests it for truth.
+ */
+int sysctl_workingset_protection __read_mostly = 1;
 /*
  * 4.9 adaptation: upstream le9uo declares these u8 and uses
  * proc_dou8vec_minmax + SYSCTL_ZERO/SYSCTL_ONE_HUNDRED, none of which exist

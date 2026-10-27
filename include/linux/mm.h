@@ -116,7 +116,7 @@ extern int sysctl_max_map_count;
 /*
  * le9uo (workingset protection) - see mm/util.c and mm/vmscan.c
  */
-extern bool sysctl_workingset_protection;
+extern int sysctl_workingset_protection;
 /* 4.9 adaptation: int, not u8 -- 4.9's intvec sysctls read/write sizeof(int) */
 extern int sysctl_anon_min_ratio;
 extern int sysctl_clean_low_ratio;

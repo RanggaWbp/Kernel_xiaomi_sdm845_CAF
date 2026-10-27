@@ -223,18 +223,22 @@ int vm_workingset_protection_update_handler(struct ctl_table *table, int write,
 }
 
 /*
- * Upstream wires the bool knob straight to proc_dobool. This wrapper only adds
- * the cache invalidation, so toggling the master switch re-resolves the ratios
- * on the next reclaim pass.
+ * Upstream wires this knob straight to proc_dobool, but this CAF tree has no
+ * proc_dobool at all (no definition, no prototype), and 4.9's intvec sysctls
+ * read and write sizeof(int) -- so the knob is an int here and normalised
+ * back to 0/1 on write. Anything non-zero enables protection.
  */
 int vm_workingset_protection_bool_handler(struct ctl_table *table, int write,
 		void __user *buffer, size_t *lenp, loff_t *ppos)
 {
+	int *data = (int *)table->data;
 	int ret;
 
-	ret = proc_dobool(table, write, buffer, lenp, ppos);
+	ret = proc_dointvec(table, write, buffer, lenp, ppos);
 	if (ret || !write)
 		return ret;
+
+	*data = *data ? 1 : 0;
 
 	workingset_protection_prev_totalram = 0;
 
@@ -3648,7 +3652,7 @@ static bool try_to_inc_max_seq(struct lruvec *lruvec, struct scan_control *sc, i
 }
 
 static long get_nr_evictable(struct lruvec *lruvec, struct scan_control *sc, int swappiness,
-			     unsigned long max_seq, unsigned long *min_seq, bool *low)
+			     unsigned long *max_seq, unsigned long *min_seq, bool *low)
 {
 	int gen, type, zone;
 	long max = 0;
@@ -3658,7 +3662,7 @@ static long get_nr_evictable(struct lruvec *lruvec, struct scan_control *sc, int
 	for (type = !swappiness; type < ANON_AND_FILE; type++) {
 		unsigned long seq;
 
-		for (seq = min_seq[type]; seq <= max_seq; seq++) {
+		for (seq = min_seq[type]; seq <= max_seq[type]; seq++) {
 			long size = 0;
 
 			gen = lru_gen_from_seq(seq);
@@ -3667,12 +3671,18 @@ static long get_nr_evictable(struct lruvec *lruvec, struct scan_control *sc, int
 				size += READ_ONCE(lrugen->sizes[gen][type][zone]);
 
 			max += size;
-			if (type && max_seq - seq >= MIN_NR_GENS)
+			if (type && max_seq[type] - seq >= MIN_NR_GENS)
 				min += size;
 		}
 	}
 
-	*low = max_seq - min_seq[1] <= MIN_NR_GENS && min < MIN_BATCH_SIZE;
+	/*
+	 * 4.9 base compared the (then shared) max_seq against min_seq[1], the
+	 * file side. With independent aging the faithful translation is the
+	 * same type on both sides.
+	 */
+	*low = max_seq[LRU_GEN_FILE] - min_seq[LRU_GEN_FILE] <= MIN_NR_GENS &&
+	       min < MIN_BATCH_SIZE;
 
 	return max > 0 ? max : 0;
 }

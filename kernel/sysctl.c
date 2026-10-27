@@ -1954,7 +1954,7 @@ static struct ctl_table vm_table[] = {
 	{
 		.procname	= "workingset_protection",
 		.data		= &sysctl_workingset_protection,
-		.maxlen		= sizeof(bool),
+		.maxlen		= sizeof(sysctl_workingset_protection),
 		.mode		= 0644,
 		.proc_handler	= vm_workingset_protection_bool_handler,
 	},
