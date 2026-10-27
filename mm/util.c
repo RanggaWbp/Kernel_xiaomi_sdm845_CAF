@@ -502,8 +502,11 @@ unsigned long sysctl_admin_reserve_kbytes __read_mostly; /* 0MB */
  * kernel/sysctl.c on this tree (4.9 has no mm/util.c sysctl table), and the
  * write handlers live in mm/vmscan.c next to the cached node totals they have
  * to invalidate.
+ *
+ * Default is on, per firelzrd's "vm.workingset_protection: On by default".
+ * This is the ONE definition of the symbol; mm/vmscan.c only consumes it.
  */
-bool sysctl_workingset_protection __read_mostly = false;
+bool sysctl_workingset_protection __read_mostly = true;
 u8 sysctl_anon_min_ratio __read_mostly = CONFIG_ANON_MIN_RATIO;
 u8 sysctl_clean_low_ratio __read_mostly = CONFIG_CLEAN_LOW_RATIO;
 u8 sysctl_clean_min_ratio __read_mostly = CONFIG_CLEAN_MIN_RATIO;
