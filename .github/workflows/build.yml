@@ -29,6 +29,25 @@ env:
   GCC_32_MIRROR: https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9
   GCC_32_MIRROR_BRANCH: lineage-19.1
   AK3_SOURCE: https://github.com/osm0sis/AnyKernel3.git
+  # AnyKernel3 is pinned to an exact commit, NOT cloned at HEAD.
+  #
+  # It has no releases or tags, so "clone --depth 1" silently means
+  # "whatever master happens to be today", and the flash toolchain then
+  # changes without anyone touching this repo.  That already happened
+  # once: upstream bb45b02 (2026-10-27 01:14 UTC) rewrote split_boot()'s
+  # exit-code handling as `[ $? == 1 ] && splitfail=1;`, and because a
+  # failing `[` test leaves $? == 1, the next line's
+  # `if [ $? != 0 -o "$splitfail" ]` read that leftover 1 and aborted
+  # with "Splitting image failed. Aborting..." on EVERY flash, including
+  # a successful unpack.  v199 shipped it; v198, built hours earlier,
+  # did not.
+  #
+  # c072981 is the last commit before that change, and is the exact
+  # toolchain v198 was built and flashed with.
+  #
+  # The gate further down asserts the safe form is still present, so
+  # unpinning cannot reintroduce this silently.
+  AK3_COMMIT: c072981
   KERNEL_ARCH: arm64
   # clang is the actual compiler; the AOSP GCC 4.9 prebuilt only supplies
   # binutils (ld/ar/nm). Without CC set, kbuild looks for a gcc driver the
@@ -335,11 +354,26 @@ jobs:
 
       - name: Fetch AnyKernel3
         run: |
-          if [ ! -d "AnyKernel3" ]; then
-            git clone --depth 1 "$AK3_SOURCE" AnyKernel3
-          fi
+          # Pin, never HEAD. See AK3_COMMIT above for why.
+          rm -rf AnyKernel3
+          git clone "$AK3_SOURCE" AnyKernel3
+          git -C AnyKernel3 checkout --detach "$AK3_COMMIT"
+          git -C AnyKernel3 log -1 --format="AnyKernel3 pinned at %h %s"
           # Remove images folder - we want Image.gz-dtb at zip root
           rm -rf AnyKernel3/images
+          # Gate the exit-code handling in split_boot().
+          #
+          # The regression was a one-line rewrite from
+          #     case $? in 1) splitfail=1;; 2) touch chromeos;; esac;
+          # to
+          #     [ $? == 1 ] && splitfail=1;
+          # A failing `[` test exits 1, so the line after it reads a
+          # stale 1 and aborts on a successful unpack. Asserting the
+          # `case` form is present is what makes the pin meaningful:
+          # if AK3_COMMIT is ever bumped or the pin dropped, this fails
+          # the build instead of shipping another unflashable zip.
+          grep -q 'splitfail=1;;' AnyKernel3/tools/ak3-core.sh \
+            || { echo 'ERROR: AK3 split_boot() lost its safe exit-code handling (bb45b02 regression); update AK3_COMMIT'; exit 1; }
 
       - name: Build + pack 3 variants (NSE / SE / DYNAMIC)
         run: |
