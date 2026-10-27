@@ -493,6 +493,21 @@ int sysctl_max_map_count __read_mostly = DEFAULT_MAX_MAP_COUNT;
 unsigned long sysctl_user_reserve_kbytes __read_mostly = 1UL << 17; /* 128MB */
 unsigned long sysctl_admin_reserve_kbytes __read_mostly; /* 0MB */
 
+/*
+ * le9uo working set protection (firelzrd v1.15).
+ *
+ * vm.workingset_protection gates the protection logic in mm/vmscan.c and the
+ * three vm.*_ratio knobs define how much of the node's anonymous / clean file
+ * pages must never be reclaimed.  The sysctl table entries themselves live in
+ * kernel/sysctl.c on this tree (4.9 has no mm/util.c sysctl table), and the
+ * write handlers live in mm/vmscan.c next to the cached node totals they have
+ * to invalidate.
+ */
+bool sysctl_workingset_protection __read_mostly = false;
+u8 sysctl_anon_min_ratio __read_mostly = CONFIG_ANON_MIN_RATIO;
+u8 sysctl_clean_low_ratio __read_mostly = CONFIG_CLEAN_LOW_RATIO;
+u8 sysctl_clean_min_ratio __read_mostly = CONFIG_CLEAN_MIN_RATIO;
+
 int overcommit_ratio_handler(struct ctl_table *table, int write,
 			     void __user *buffer, size_t *lenp,
 			     loff_t *ppos)

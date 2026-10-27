@@ -239,6 +239,12 @@ struct mem_cgroup;
 /* both sides of the "anon and file" pair, see enum lru_list above */
 #define ANON_AND_FILE		2
 
+/* the two MGLRU types; aged independently by Re-swappiness (firelzrd v1.3) */
+enum {
+	LRU_GEN_ANON = 0,
+	LRU_GEN_FILE
+};
+
 #define LRU_GEN_MASK		((BIT(LRU_GEN_WIDTH) - 1) << LRU_GEN_PGOFF)
 #define LRU_REFS_MASK		((BIT(LRU_REFS_WIDTH) - 1) << LRU_REFS_PGOFF)
 
@@ -333,12 +339,14 @@ enum {
 #define NR_BLOOM_FILTERS	2
 
 struct lru_gen_mm_walk {
-	/* set to max_seq after each round of walk */
-	unsigned long seq;
+	/* synced with max_seq[] after each round of walk */
+	unsigned long seq[ANON_AND_FILE];
 	/* the next mm_struct on the list to walk */
-	struct list_head *head;
+	struct list_head *head[ANON_AND_FILE];
 	/* the first mm_struct never walked before */
-	struct list_head *tail;
+	struct list_head *tail[ANON_AND_FILE];
+	/* which type is being aged (LRU_GEN_ANON or LRU_GEN_FILE) */
+	int aging_type;
 	/* to wait for the last walker to finish */
 	wait_queue_head_t wait;
 	/* bloom filters flip after each round of walk */
@@ -354,7 +362,9 @@ struct lru_gen_mm_walk {
 
 struct mm_walk_args {
 	struct mem_cgroup *memcg;
-	unsigned long max_seq;
+	unsigned long max_seq[ANON_AND_FILE];
+	/* which type is being aged (LRU_GEN_ANON or LRU_GEN_FILE) */
+	int aging_type;
 	unsigned long start_pfn;
 	unsigned long end_pfn;
 	unsigned long next_addr;

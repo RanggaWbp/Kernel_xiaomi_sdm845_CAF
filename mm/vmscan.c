@@ -119,6 +119,19 @@ struct scan_control {
 	unsigned int skipped_deactivate:1;
 	unsigned int memcg_low_reclaim:1;
 
+	/*
+	 * le9uo: the anonymous pages on the current node are below
+	 * vm.anon_min_ratio (hard protection).
+	 */
+	unsigned int anon_below_min:1;
+
+	/*
+	 * le9uo: the clean file pages on the current node are below
+	 * vm.clean_low_ratio / vm.clean_min_ratio.
+	 */
+	unsigned int clean_below_low:1;
+	unsigned int clean_below_min:1;
+
 	/* Incremented by the number of inactive pages that were scanned */
 	unsigned long nr_scanned;
 
@@ -160,6 +173,15 @@ struct scan_control {
 #else
 #define prefetchw_prev_lru_page(_page, _base, _field) do { } while (0)
 #endif
+
+/*
+ * Backport of "vm.workingset_protection: On by default".
+ *
+ * When the workingset protection logic (le9uo) is present this knob gates
+ * hard protection of the working set during reclaim; it defaults to enabled
+ * here, matching upstream's on-by-default behaviour.
+ */
+bool sysctl_workingset_protection __read_mostly = true;
 
 /*
  * From 0 .. 100.  Higher means more swappy.

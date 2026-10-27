@@ -1950,6 +1950,36 @@ static struct ctl_table vm_table[] = {
 		.mode		= 0644,
 		.proc_handler	= proc_doulongvec_minmax,
 	},
+#ifdef CONFIG_ANON_MIN_RATIO
+	{
+		.procname	= "workingset_protection",
+		.data		= &sysctl_workingset_protection,
+		.maxlen		= sizeof(bool),
+		.mode		= 0644,
+		.proc_handler	= vm_workingset_protection_bool_handler,
+	},
+	{
+		.procname	= "anon_min_ratio",
+		.data		= &sysctl_anon_min_ratio,
+		.maxlen		= sizeof(u8),
+		.mode		= 0644,
+		.proc_handler	= vm_workingset_protection_update_handler,
+	},
+	{
+		.procname	= "clean_low_ratio",
+		.data		= &sysctl_clean_low_ratio,
+		.maxlen		= sizeof(u8),
+		.mode		= 0644,
+		.proc_handler	= vm_workingset_protection_update_handler,
+	},
+	{
+		.procname	= "clean_min_ratio",
+		.data		= &sysctl_clean_min_ratio,
+		.maxlen		= sizeof(u8),
+		.mode		= 0644,
+		.proc_handler	= vm_workingset_protection_update_handler,
+	},
+#endif /* CONFIG_ANON_MIN_RATIO */
 #ifdef CONFIG_ZRAM_ENTROPY
 	{
 		.procname	= "zram_entropy_threshold",
