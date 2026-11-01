@@ -38,6 +38,15 @@ extern struct vfsmount *susfs_get_non_sus_vfsmnt_from_vfsmnt(struct vfsmount *vf
 #include <linux/string.h>
 #include <linux/vmalloc.h>
 
+#ifdef CONFIG_KSU_SUSFS_ENABLE_LOG
+DEFINE_STATIC_KEY_TRUE(susfs_is_log_enabled);
+#define SUSFS_LOGI(fmt, ...) if (static_branch_likely(&susfs_is_log_enabled)) pr_info("susfs:[%u][%d][%s] " fmt, current_uid().val, current->pid, __func__, ##__VA_ARGS__)
+#define SUSFS_LOGE(fmt, ...) if (static_branch_likely(&susfs_is_log_enabled)) pr_err("susfs:[%u][%d][%s]" fmt, current_uid().val, current->pid, __func__, ##__VA_ARGS__)
+#else
+#define SUSFS_LOGI(fmt, ...) 
+#define SUSFS_LOGE(fmt, ...) 
+#endif
+
 /*
  * kvmalloc() was introduced in v4.12. 4.4 / 4.9 do not have it, but they do
  * have kvfree(), so only kvmalloc() needs a fallback here.
@@ -105,14 +114,6 @@ static void susfs_restore_creds(struct cred *orig_cred) {
 	commit_creds(orig_cred);
 }
 
-#ifdef CONFIG_KSU_SUSFS_ENABLE_LOG
-DEFINE_STATIC_KEY_TRUE(susfs_is_log_enabled);
-#define SUSFS_LOGI(fmt, ...) if (static_branch_likely(&susfs_is_log_enabled)) pr_info("susfs:[%u][%d][%s] " fmt, current_uid().val, current->pid, __func__, ##__VA_ARGS__)
-#define SUSFS_LOGE(fmt, ...) if (static_branch_likely(&susfs_is_log_enabled)) pr_err("susfs:[%u][%d][%s]" fmt, current_uid().val, current->pid, __func__, ##__VA_ARGS__)
-#else
-#define SUSFS_LOGI(fmt, ...) 
-#define SUSFS_LOGE(fmt, ...) 
-#endif
 
 /* sus_path */
 #ifdef CONFIG_KSU_SUSFS_SUS_PATH
@@ -1264,7 +1265,6 @@ out_copy_to_user:
 	}
 	SUSFS_LOGI("CMD_SUSFS_ADD_SUS_MAP -> ret: %d\n", info.err);
 }
-#endif // #ifdef CONFIG_KSU_SUSFS_SUS_MAP
 
 /* priority uid filter */
 struct susfs_priority_uid_filter_bitmap {
@@ -1639,33 +1639,6 @@ bool susfs_is_priority_uid_filtered(uid_t uid) {
 	}
 
 	return false;
-}
-
-/* susfs avc log spoofing */
-DEFINE_STATIC_KEY_FALSE(susfs_is_avc_log_spoofing_enabled);
-
-void susfs_set_avc_log_spoofing(void __user **user_info) {
-	struct st_susfs_avc_log_spoofing info = {0};
-
-	if (copy_from_user(&info, (struct st_susfs_avc_log_spoofing __user*)*user_info, sizeof(info))) {
-		info.err = -EFAULT;
-		goto out_copy_to_user;
-	}
-
-	if (info.enabled) {
-		static_branch_enable(&susfs_is_avc_log_spoofing_enabled);
-		SUSFS_LOGI("enabling susfs_avc_log_spoofing\n");
-	} else {
-		static_branch_disable(&susfs_is_avc_log_spoofing_enabled);
-		SUSFS_LOGI("disabling susfs_avc_log_spoofing\n");
-	}
-
-	info.err = 0;
-out_copy_to_user:
-	if (copy_to_user(&((struct st_susfs_avc_log_spoofing __user*)*user_info)->err, &info.err, sizeof(info.err))) {
-		info.err = -EFAULT;
-	}
-	SUSFS_LOGI("CMD_SUSFS_ENABLE_AVC_LOG_SPOOFING -> ret: %d\n", info.err);
 }
 
 
