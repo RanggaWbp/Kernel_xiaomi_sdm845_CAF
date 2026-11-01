@@ -19,15 +19,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  CLANG_REPO: https://github.com/kdrag0n/proton-clang
-  GCC_64_SOURCE: https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9
-  GCC_64_BRANCH: android12L-release
-  GCC_64_MIRROR: https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9
-  GCC_64_MIRROR_BRANCH: lineage-19.1
-  GCC_32_SOURCE: https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9
-  GCC_32_BRANCH: android12L-release
-  GCC_32_MIRROR: https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9
-  GCC_32_MIRROR_BRANCH: lineage-19.1
+  CLANG_VERSION: 14.0.6-20261022-release
+  CLANG_TARBALL: Clang-14.0.6-20261022.tar.gz
+  CLANG_URL: https://github.com/ZyCromerZ/Clang/releases/download/14.0.6-20261022-release/Clang-14.0.6-20261022.tar.gz
   AK3_SOURCE: https://github.com/osm0sis/AnyKernel3.git
   # AnyKernel3 is pinned to an exact commit, NOT cloned at HEAD.
   #
@@ -49,11 +43,13 @@ env:
   # unpinning cannot reintroduce this silently.
   AK3_COMMIT: c072981
   KERNEL_ARCH: arm64
-  # clang is the actual compiler; the AOSP GCC 4.9 prebuilt only supplies
-  # binutils (ld/ar/nm). Without CC set, kbuild looks for a gcc driver the
-  # prebuilt does not ship and dies with "aarch64-linux-android-gcc: No such
-  # file or directory". CLANG_TRIPLE must be the GNU triple, not a bare one.
-  CC: ${{ github.workspace }}/tc/proton-clang/bin/clang
+  # clang is the actual compiler; ZyCromerZ Clang bundles its own GNU
+  # binutils (aarch64-linux-gnu-* and arm-linux-gnueabi-*) for ld/ar/nm
+  # and the 32-bit vDSO, so no separate AOSP GCC prebuilt is needed.
+  # Without CC set, kbuild looks for a gcc driver that is not shipped and
+  # dies with "aarch64-linux-gnu-gcc: No such file or directory".
+  # CLANG_TRIPLE must be the GNU triple, not a bare one.
+  CC: ${{ github.workspace }}/tc/zyc-clang/bin/clang
   CLANG_TRIPLE: aarch64-linux-gnu-
   REPO: ${{ github.repository }}
   BRANCH: ${{ github.ref_name }}
@@ -121,36 +117,27 @@ jobs:
       - name: Fetch toolchains
         run: |
           set -eu
-          # ProtonClang (64-bit)
-          if [ ! -d "tc/proton-clang" ]; then
-            git clone --depth 1 "$CLANG_REPO" tc/proton-clang
+          # ZyCromerZ Clang: single tarball bundles clang + GNU binutils
+          # (aarch64-linux-gnu-* and arm-linux-gnueabi-*). Flat layout, so it
+          # extracts straight into tc/zyc-clang/.
+          if [ ! -x "tc/zyc-clang/bin/clang" ]; then
+            mkdir -p tc/zyc-clang
+            curl -fL --retry 3 -o /tmp/zyc-clang.tar.gz "$CLANG_URL"
+            tar -xzf /tmp/zyc-clang.tar.gz -C tc/zyc-clang
+            rm -f /tmp/zyc-clang.tar.gz
           fi
-          # AOSP GCC 4.9 (64-bit); fall back to the LineageOS mirror when
-          # android.googlesource.com answers 503
-          if [ ! -d "tc/gcc-64" ]; then
-            git clone --depth 1 --branch "$GCC_64_BRANCH" "$GCC_64_SOURCE" tc/gcc-64 \
-              || { rm -rf tc/gcc-64; \
-                   git clone --depth 1 --branch "$GCC_64_MIRROR_BRANCH" "$GCC_64_MIRROR" tc/gcc-64; }
-          fi
-          # AOSP GCC 4.9 (32-bit); same fallback
-          if [ ! -d "tc/gcc-32" ]; then
-            git clone --depth 1 --branch "$GCC_32_BRANCH" "$GCC_32_SOURCE" tc/gcc-32 \
-              || { rm -rf tc/gcc-32; \
-                   git clone --depth 1 --branch "$GCC_32_MIRROR_BRANCH" "$GCC_32_MIRROR" tc/gcc-32; }
-          fi
-          # Both gcc bin dirs must be on PATH. arch/arm64/Makefile derives
+          # The binutils bin dir must be on PATH. arch/arm64/Makefile derives
           # GCC_TOOLCHAIN{,_32}_DIR with `which $(CROSS_COMPILE_ARM32)ld`; if
           # it is not found, CLANG_PREFIX32 stays empty and clang's
-          # -no-integrated-as falls back to ProtonClang's as, which rejects
-          # the GNU '-EL' flag. Put them on PATH for every later step.
-          echo "$PWD/tc/gcc-64/bin" >> "$GITHUB_PATH"
-          echo "$PWD/tc/gcc-32/bin" >> "$GITHUB_PATH"
+          # -no-integrated-as falls back to the wrong assembler, which rejects
+          # the GNU '-EL' flag. Put bin on PATH for every later step.
+          echo "$PWD/tc/zyc-clang/bin" >> "$GITHUB_PATH"
 
       - name: Cache toolchains
         uses: actions/cache@v4
         with:
           path: tc/
-          key: toolchains-${{ runner.os }}-${{ hashFiles('tc/*/version') }}
+          key: toolchains-${{ runner.os }}-${{ env.CLANG_VERSION }}
           restore-keys: |
             toolchains-${{ runner.os }}-
 
@@ -192,7 +179,7 @@ jobs:
 
       - name: Configure kernel
         run: |
-          make ARCH=$KERNEL_ARCH CC="$PWD/tc/proton-clang/bin/clang" CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE="$PWD/tc/gcc-64/bin/aarch64-linux-android-" CROSS_COMPILE_ARM32="$PWD/tc/gcc-32/bin/arm-linux-androideabi-" O=out ${{ matrix.defconfig }}
+          make ARCH=$KERNEL_ARCH CC="$PWD/tc/zyc-clang/bin/clang" CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE="$PWD/tc/zyc-clang/bin/aarch64-linux-gnu-" CROSS_COMPILE_ARM32="$PWD/tc/zyc-clang/bin/arm-linux-gnueabi-" O=out ${{ matrix.defconfig }}
           # Enable extra configs for better Android compatibility
           sed -i 's/# CONFIG_LOCALVERSION_AUTO is not set/CONFIG_LOCALVERSION_AUTO=y/' out/.config
           sed -i 's/# CONFIG_LOCALVERSION is not set/CONFIG_LOCALVERSION="-bakasu-susfs"/' out/.config
@@ -310,7 +297,7 @@ jobs:
           # Capture build stdout: BakaSU kernel/Kbuild prints its own version
           # banner via $(info ...). Grep that instead of recomputing from the
           # submodule, so Kbuild stays the single source of truth.
-          make -j$(nproc) ARCH=$KERNEL_ARCH CC="$PWD/tc/proton-clang/bin/clang" CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE="$PWD/tc/gcc-64/bin/aarch64-linux-android-" CROSS_COMPILE_ARM32="$PWD/tc/gcc-32/bin/arm-linux-androideabi-" O=out Image.gz 2>&1 | tee build-${{ matrix.device }}.log
+          make -j$(nproc) ARCH=$KERNEL_ARCH CC="$PWD/tc/zyc-clang/bin/clang" CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE="$PWD/tc/zyc-clang/bin/aarch64-linux-gnu-" CROSS_COMPILE_ARM32="$PWD/tc/zyc-clang/bin/arm-linux-gnueabi-" O=out Image.gz 2>&1 | tee build-${{ matrix.device }}.log
           cp out/arch/arm64/boot/Image.gz out/Image.gz/
           # Prove the preinit fallback actually ran, instead of assuming it.
           # Upstream prints this itself; if it is gone the gate changed and
@@ -394,7 +381,7 @@ jobs:
           # The kernel Image was already built in the previous step and is NOT
           # variant-specific: the only difference is the fstab node inside the
           # DTB, so each variant just recompiles the dtbs and repacks the zip.
-          KMAKE="make -j$(nproc) ARCH=$KERNEL_ARCH CC=$PWD/tc/proton-clang/bin/clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=$PWD/tc/gcc-64/bin/aarch64-linux-android- CROSS_COMPILE_ARM32=$PWD/tc/gcc-32/bin/arm-linux-androideabi- O=out"
+          KMAKE="make -j$(nproc) ARCH=$KERNEL_ARCH CC=$PWD/tc/zyc-clang/bin/clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=$PWD/tc/zyc-clang/bin/aarch64-linux-gnu- CROSS_COMPILE_ARM32=$PWD/tc/zyc-clang/bin/arm-linux-gnueabi- O=out"
           mkdir -p artifacts
           # The loop value stays lowercase because it is the dt-variants/<name>.dtsi
           # path; VARIANT_UC is the label users see (zip name, installer UI).
@@ -624,7 +611,7 @@ jobs:
             echo "2. Wipe cache + dalvik-cache (recommended)."
             echo "3. Reboot."
             echo
-            echo "> Toolchain: ProtonClang (clang-13) + AOSP GCC 4.9 binutils. Android 10-15 (10/11 via the \`NSE\`/\`SE\` variants, 12+ via \`DYNAMIC\`)."
+            echo "> Toolchain: ZyCromerZ Clang 14.0.6 (bundled GNU binutils). Android 10-15 (10/11 via the \`NSE\`/\`SE\` variants, 12+ via \`DYNAMIC\`)."
           } > RELEASE_NOTES.md
           cat RELEASE_NOTES.md
 
