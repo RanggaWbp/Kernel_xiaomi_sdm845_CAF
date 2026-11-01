@@ -421,7 +421,7 @@ jobs:
             # update-binary, so parentheses in the value are a parse error
             # ("syntax error near unexpected token `('") and every flash dies with
             # TWRP ERROR 1 before the script runs. Dash only, no brackets.
-            sed -i "s/kernel.string=.*/kernel.string=BakaSU Kernel ${BRANCH} for ${{ matrix.device }} - ${VARIANT_UC}/" out/img/anykernel.sh
+            sed -i "s/kernel.string=.*/kernel.string=TanpaNama Kernel ${BRANCH} for ${{ matrix.device }} - ${VARIANT_UC}/" out/img/anykernel.sh
             sed -i "s|## Kernel xiaomi sdm845.*|## Kernel xiaomi sdm845 (CAF 4.9.337) by RanggaWbp|" out/img/anykernel.sh
             sed -i "s|## Features:.*|## Features: BakaSU + SUSFS + NoMount + BBG + DroidSpaces + ReKernel + NTSYNC + BORE + ADIOS + MGLRU + LZ4 + LZ4KD + LE9UO + Re-swappiness + BBRv3 + POC Selector + Cambyses + Reflex|" out/img/anykernel.sh
             # Same class of failure as above, caught before zipping: TWRP only

@@ -32,7 +32,7 @@ device.name6=ursa
 # kernel.string is the install title TWRP shows (read by update-binary's
 # file_getprop from this file, so it must stay lowercase at column 0 and
 # cannot contain a '=' sign).
-kernel.string=BakaSU for Xiaomi SDM845 by RanggaWbp
+kernel.string=TanpaNama for Xiaomi SDM845 by RanggaWbp
 supported.versions=
 supported.patchlevels=
 supported.vendorpatchlevels=
@@ -96,7 +96,7 @@ PATCH_VBMETA_FLAG=auto;
 #   - every row says what the feature DOES, not that it exists: all of
 #     them are compiled in, so a status column would carry no information
 ui_print "--------------------------------------------------------"
-ui_print " BakaSU Kernel 4.9.337 (CAF) Xiaomi SDM845"
+ui_print " TanpaNama Kernel 4.9.337 (CAF) Xiaomi SDM845"
 # Author and build date. __BUILD_DATE__ is substituted by
 # .github/workflows/build.yml (same mechanism as __VARIANT__) with the
 # date the image was actually built, so the banner identifies the build
