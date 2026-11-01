@@ -1265,6 +1265,7 @@ out_copy_to_user:
 	}
 	SUSFS_LOGI("CMD_SUSFS_ADD_SUS_MAP -> ret: %d\n", info.err);
 }
+#endif // #ifdef CONFIG_KSU_SUSFS_SUS_MAP
 
 /* priority uid filter */
 struct susfs_priority_uid_filter_bitmap {
