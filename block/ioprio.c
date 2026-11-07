@@ -58,9 +58,9 @@ int set_task_ioprio(struct task_struct *task, int ioprio)
 }
 EXPORT_SYMBOL_GPL(set_task_ioprio);
 
-#ifdef CONFIG_KSU_SUSFS
+#ifdef CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER
 extern bool susfs_is_priority_uid_filtered(uid_t uid);
-#endif // #ifdef CONFIG_KSU_SUSFS
+#endif // #ifdef CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER
 
 SYSCALL_DEFINE3(ioprio_set, int, which, int, who, int, ioprio)
 {
@@ -120,19 +120,19 @@ SYSCALL_DEFINE3(ioprio_set, int, which, int, who, int, ioprio)
 				break;
 			if (!who)
 				user = current_user();
-			else
-#ifdef CONFIG_KSU_SUSFS
-			{
-				if (current_uid().val >= 10000 && susfs_is_priority_uid_filtered(uid.val))
-					break;
-				user = find_user(uid);
-			}
-#else
-				user = find_user(uid);
-#endif // #ifdef CONFIG_KSU_SUSFS
+				else
+				#ifdef CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER
+					{
+						if (current_uid().val >= 10000 && susfs_is_priority_uid_filtered(uid.val))
+							break;
+						user = find_user(uid);
+					}
+				#else
+						user = find_user(uid);
+				#endif // #ifdef CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER
 
-			if (!user)
-				break;
+				if (!user)
+					break;
 
 			do_each_thread(g, p) {
 				if (!uid_eq(task_uid(p), uid) ||
@@ -231,19 +231,19 @@ SYSCALL_DEFINE2(ioprio_get, int, which, int, who)
 			uid = make_kuid(current_user_ns(), who);
 			if (!who)
 				user = current_user();
-			else
-#ifdef CONFIG_KSU_SUSFS
-			{
-				if (current_uid().val >= 10000 && susfs_is_priority_uid_filtered(uid.val))
-					break;
-				user = find_user(uid);
-			}
-#else
-				user = find_user(uid);
-#endif // #ifdef CONFIG_KSU_SUSFS
+				else
+				#ifdef CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER
+					{
+						if (current_uid().val >= 10000 && susfs_is_priority_uid_filtered(uid.val))
+							break;
+						user = find_user(uid);
+					}
+				#else
+						user = find_user(uid);
+				#endif // #ifdef CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER
 
-			if (!user)
-				break;
+				if (!user)
+					break;
 
 			do_each_thread(g, p) {
 				if (!uid_eq(task_uid(p), user->uid) ||

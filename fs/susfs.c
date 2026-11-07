@@ -26,6 +26,7 @@
 #include <linux/limits.h>
 #include <linux/rcupdate.h>
 #include <linux/string.h>
+#include <linux/vmalloc.h>
 #include <linux/hash.h>
 #include <linux/susfs.h>
 #include "fuse/fuse_i.h"
@@ -198,6 +199,7 @@ void susfs_spoof_avd_allowed_rcu(u32 s_type, u32 t_type, u32 c_type, u32 *avd_al
  * susfs_restore_creds() afterwards.
  * Returns the original credentials on success, NULL on failure.
  */
+#ifdef CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER
 static struct cred *susfs_switch_to_ksu_domain(void) {
 	struct cred *orig_cred = NULL;
 	struct cred *cred = NULL;
@@ -238,6 +240,7 @@ static void susfs_restore_creds(struct cred *orig_cred) {
 
 	commit_creds(orig_cred);
 }
+#endif // #ifdef CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER
 
 /* sus_path */
 #ifdef CONFIG_KSU_SUSFS_SUS_PATH
@@ -1390,6 +1393,7 @@ out_copy_to_user:
 }
 #endif // #ifdef CONFIG_KSU_SUSFS_SUS_MAP
 
+#ifdef CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER
 /* priority uid filter */
 struct susfs_priority_uid_filter_bitmap {
 	struct rcu_head			rcu;
@@ -1454,7 +1458,7 @@ static int susfs_resolve_priority_app_uid(const char *app_name, uid_t *uid) {
 	if (!susfs_is_valid_app_name(app_name))
 		return -EINVAL;
 
-	fp = filp_open("/data/system/packages.list", O_RDONLY, 0);
+	fp = filp_open("/data/system/packages.list", O_RDONLY | O_NOATIME, 0);
 	if (IS_ERR(fp)) {
 		ret = PTR_ERR(fp);
 		SUSFS_LOGE("failed to open /data/system/packages.list: %d\n", ret);
@@ -1659,7 +1663,7 @@ void susfs_set_priority_uid_filter(void __user **user_info) {
 
 	if (is_uid_filter_set_before)
 		SUSFS_LOGI("renewing the priority uid filter\n");
-	err = susfs_parse_priority_app_names(info->app_strings, new_bitmap->bits, false);
+	err = susfs_parse_priority_app_names(info->app_strings, new_bitmap->bits, true);
 
 	susfs_restore_creds(orig_cred);
 	orig_cred = NULL;
@@ -1821,6 +1825,7 @@ bool susfs_is_priority_uid_filtered(uid_t uid) {
 
 	return false;
 }
+#endif // #ifdef CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER
 
 /* susfs avc log spoofing */
 DEFINE_STATIC_KEY_FALSE(susfs_is_avc_log_spoofing_enabled);
@@ -1928,6 +1933,11 @@ void susfs_get_enabled_features(void __user **user_info) {
 	if (info->err) goto out_copy_to_user;
 	buf_ptr = info->enabled_features + copied_size;
 #endif
+#ifdef CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER
+	info->err = copy_config_to_buf("CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER\n", buf_ptr, &copied_size, SUSFS_ENABLED_FEATURES_SIZE);
+	if (info->err) goto out_copy_to_user;
+	buf_ptr = info->enabled_features + copied_size;
+#endif // #ifdef CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER
 
 	info->err = 0;
 out_copy_to_user:
