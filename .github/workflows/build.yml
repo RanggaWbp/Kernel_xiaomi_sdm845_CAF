@@ -252,7 +252,7 @@ jobs:
           # object check below is what proves it actually compiled in.
           check_symbol "CONFIG_SCHED_POC_SELECTOR" "y"
           check_symbol "CONFIG_CPU_FREQ_GOV_REFLEX" "y"
-          check_symbol "CONFIG_CPU_FREQ_DEFAULT_GOV_REFLEX" "y"
+          check_symbol "CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL" "y"
           # ADIOS must be the *default* scheduler, not merely built: without
           # CONFIG_DEFAULT_ADIOS the "Default I/O scheduler" choice still
           # resolves to CFQ and adios-iosched.o is dead code in the image.
@@ -563,7 +563,7 @@ jobs:
             echo "- **Re-swappiness** v1.3 reworked swappiness heuristic (\`vm.swappiness\`, \`vm.direct_swappiness\`)"
             echo "- **BBRv3** TCP congestion control (\`bbr3\`, **active by default**, coexists with \`bbr\` v1) + **PLB** load balancing"
             echo "- **POC Selector** v2.6.3 (Piece-Of-Cake idle CPU selector, capacity-class gated so it stays inside the target's cluster on big.LITTLE)"
-            echo "- **Reflex** cpufreq governor v0.4.0 (schedutil + measured fast path for rising load, **active by default**)"
+            echo "- **Reflex** cpufreq governor v0.4.0 (schedutil + measured fast path for rising load; **built-in, not the default** -- default is stock schedutil)"
             echo "- **Cambyses** CFS load balancer v0.6.0 (Masahito Suzuki: migration candidates compared directly against the remaining imbalance instead of halved, and a scan that admits nothing concedes to the cheapest overshoot so balancing still makes progress; **both LB_STRICT_BUDGET and LB_ROTATE_BLOCK active**)"
             echo
             echo "### BBRv3"

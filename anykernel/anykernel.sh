@@ -126,12 +126,13 @@ ui_print " DroidSpaces  app sandbox containers"
 ui_print " ReKernel     tombstone netlink server"
 ui_print " NTSYNC       nt sync driver"
 ui_print "--------------------------------------------------------"
-# Reflex and ADIOS are kernel defaults (CONFIG_CPU_FREQ_DEFAULT_GOV_REFLEX,
-# CONFIG_DEFAULT_ADIOS) but /vendor/etc/init/hw/init.qcom.power.rc rewrites
-# scaling_governor to schedutil on cpu0/cpu4, and
-# /vendor/etc/init/hw/init.qcom.rc rewrites sda/sdf to cfq, at every boot.
+# Reflex is built-in but NOT the default governor; stock schedutil is the
+# default (CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL). ADIOS is a kernel default
+# (CONFIG_DEFAULT_ADIOS), but /vendor/etc/init/hw/init.qcom.power.rc
+# rewrites scaling_governor to schedutil on cpu0/cpu4 at every boot, and
+# /vendor/etc/init/hw/init.qcom.rc rewrites sda/sdf to cfq.
 # On a stock vendor image the runtime value is therefore not guaranteed.
-ui_print " Reflex/ADIOS are kernel defaults; vendor may override"
+ui_print " Default governor: stock schedutil (Reflex built-in, selectable)"
 ui_print " tcp_congestion_control: bbr3"
 # LZ4KD is built in so "lz4kdr" appears in /sys/block/zram0/comp_algorithm,
 # but LZ4 stays the default compressor. Pick it by hand from Franco Kernel
