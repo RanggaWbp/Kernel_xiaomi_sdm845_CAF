@@ -199,7 +199,7 @@ void susfs_spoof_avd_allowed_rcu(u32 s_type, u32 t_type, u32 c_type, u32 *avd_al
  * susfs_restore_creds() afterwards.
  * Returns the original credentials on success, NULL on failure.
  */
-#ifdef CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER
+#ifdef CONFIG_KSU_SUSFS
 static struct cred *susfs_switch_to_ksu_domain(void) {
 	struct cred *orig_cred = NULL;
 	struct cred *cred = NULL;
@@ -240,7 +240,7 @@ static void susfs_restore_creds(struct cred *orig_cred) {
 
 	commit_creds(orig_cred);
 }
-#endif // #ifdef CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER
+#endif // #ifdef CONFIG_KSU_SUSFS
 
 /* sus_path */
 #ifdef CONFIG_KSU_SUSFS_SUS_PATH
@@ -1393,7 +1393,7 @@ out_copy_to_user:
 }
 #endif // #ifdef CONFIG_KSU_SUSFS_SUS_MAP
 
-#ifdef CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER
+#ifdef CONFIG_KSU_SUSFS
 /* priority uid filter */
 struct susfs_priority_uid_filter_bitmap {
 	struct rcu_head			rcu;
@@ -1825,7 +1825,7 @@ bool susfs_is_priority_uid_filtered(uid_t uid) {
 
 	return false;
 }
-#endif // #ifdef CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER
+#endif // #ifdef CONFIG_KSU_SUSFS
 
 /* susfs avc log spoofing */
 DEFINE_STATIC_KEY_FALSE(susfs_is_avc_log_spoofing_enabled);
@@ -1933,11 +1933,11 @@ void susfs_get_enabled_features(void __user **user_info) {
 	if (info->err) goto out_copy_to_user;
 	buf_ptr = info->enabled_features + copied_size;
 #endif
-#ifdef CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER
+#ifdef CONFIG_KSU_SUSFS
 	info->err = copy_config_to_buf("CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER\n", buf_ptr, &copied_size, SUSFS_ENABLED_FEATURES_SIZE);
 	if (info->err) goto out_copy_to_user;
 	buf_ptr = info->enabled_features + copied_size;
-#endif // #ifdef CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER
+#endif // #ifdef CONFIG_KSU_SUSFS
 
 	info->err = 0;
 out_copy_to_user:
