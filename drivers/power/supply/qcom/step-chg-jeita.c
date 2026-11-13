@@ -909,10 +909,10 @@ int qcom_step_chg_init(struct device *dev,
 
 	chip->jeita_fcc_config->psy_prop = POWER_SUPPLY_PROP_TEMP;
 	chip->jeita_fcc_config->prop_name = "BATT_TEMP";
-	chip->jeita_fcc_config->hysteresis = 5;
+	chip->jeita_fcc_config->hysteresis = 10;
 	chip->jeita_fv_config->psy_prop = POWER_SUPPLY_PROP_TEMP;
 	chip->jeita_fv_config->prop_name = "BATT_TEMP";
-	chip->jeita_fv_config->hysteresis = 5;
+	chip->jeita_fv_config->hysteresis = 10;
 
 	chip->dynamic_fv_config->prop_name = "BATT_CYCLE_COUNT";
 
