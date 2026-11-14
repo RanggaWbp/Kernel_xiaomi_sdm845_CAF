@@ -11,11 +11,11 @@ qcom,e1_coslight_3070mAh {
         qcom,jeita-fcc-ranges = <0   50   330000
                                  51  150  990000
                                  151 450  3300000
-                                 451 600  1650000>;
+                                 451 700  1650000>;
         qcom,jeita-fv-ranges =  <0   50   4400000
                                  51  150  4400000
                                  151 450  4400000
-                                 451 600  4100000>;
+                                 451 700  4100000>;
 	qcom,checksum = <0xDF1B>;
 	qcom,gui-version = "PMI8998GUI - 2.0.0.58";
 	qcom,fg-profile-data = [
