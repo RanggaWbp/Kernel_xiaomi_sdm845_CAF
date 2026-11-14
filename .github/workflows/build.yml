@@ -547,7 +547,7 @@ jobs:
             echo
             echo "### Features"
             echo "- **BakaSU** (ReSukiSU) KernelSU integration"
-            echo "- **SUSFS** v2.3.0"
+            echo "- **SUSFS** v2.4.0"
             echo "- **NoMount** (maxsteeel/nomount)"
             echo "- **Baseband-guard** (vc-teahouse/Baseband-guard)"
             echo "- **ReKernel** tombstone netlink server (Sakion-Team: a Netlink endpoint tombstone apps talk to, so native crashes are reported with fuller detail)"
