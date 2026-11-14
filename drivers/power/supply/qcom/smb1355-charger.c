@@ -271,8 +271,16 @@ static bool is_secure(struct smb1355 *chip, int addr)
 	if (addr == CLOCK_REQUEST_REG)
 		return true;
 
-	/* assume everything above 0xA0 is secure */
-	return (addr & 0xFF) >= 0xA0;
+	/* Only the REVID page is freely accessible. All other pages
+	 * (CHGR/USBIN/BATIF/ANA/MISC) are write-protected and need the
+	 * unlock key written to 0xD0 before any register write, including
+	 * those whose offset is below 0xA0 (e.g. CHGR_BATTOV 0x70,
+	 * FAST_CHARGE_CURRENT 0x61, USBIN_CURRENT_LIMIT 0x70).
+	 */
+	if ((addr & 0xFF00) == REVID_BASE)
+		return false;
+
+	return true;
 }
 
 static int smb1355_read(struct smb1355 *chip, u16 addr, u8 *val)
