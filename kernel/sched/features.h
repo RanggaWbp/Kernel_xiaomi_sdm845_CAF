@@ -111,7 +111,7 @@ SCHED_FEAT(ATTACH_AGE_LOAD, true)
  *
  * Turn off to get the upstream per-reject list_move_tail() behaviour.
  */
-SCHED_FEAT(LB_ROTATE_BLOCK, true)
+SCHED_FEAT(LB_ROTATE_BLOCK, false)
 
 /*
  * Compare a migration candidate's cost against the remaining imbalance budget
