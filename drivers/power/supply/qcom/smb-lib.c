@@ -2695,9 +2695,10 @@ int smblib_set_prop_system_temp_level(struct smb_charger *chg,
 	if (!chg->typec_present)
 		return 0;
 
+	/* never fully disable charging on a thermal daemon request; cap at the
+	 * last mitigation level so input current is reduced but still charges */
 	if (chg->system_temp_level >= chg->thermal_levels)
-		return vote(chg->chg_disable_votable,
-			THERMAL_DAEMON_VOTER, true, 0);
+		chg->system_temp_level = chg->thermal_levels - 1;
 
 	vote(chg->chg_disable_votable, THERMAL_DAEMON_VOTER, false, 0);
 
