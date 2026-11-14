@@ -559,7 +559,6 @@ jobs:
             echo "- **LZ4** zram compressor (lz4 default, synced to upstream lib/lz4)"
             echo "- **LZ4KD** zram compressor v1.3 (Huawei LZ4KD derivative, **selectable, not the default** -- switch with \`echo lz4kdr > /sys/block/zram0/comp_algorithm\` before init, or from Franco Kernel Manager)"
             echo "- **LE9UO** v1.15 ratio-based working-set protection (\`vm.anon_min_ratio\`, \`vm.clean_min_ratio\`, \`vm.clean_low_ratio\`)"
-            echo "- **Workingset protection** on by default (\`vm.workingset_protection=1\`)"
             echo "- **Re-swappiness** v1.3 reworked swappiness heuristic (\`vm.swappiness\`, \`vm.direct_swappiness\`)"
             echo "- **BBRv3** TCP congestion control (\`bbr3\`, **active by default**, coexists with \`bbr\` v1) + **PLB** load balancing"
             echo "- **POC Selector** v2.6.3 (Piece-Of-Cake idle CPU selector, capacity-class gated so it stays inside the target's cluster on big.LITTLE)"

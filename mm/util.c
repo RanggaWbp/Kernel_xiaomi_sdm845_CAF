@@ -503,7 +503,8 @@ unsigned long sysctl_admin_reserve_kbytes __read_mostly; /* 0MB */
  * write handlers live in mm/vmscan.c next to the cached node totals they have
  * to invalidate.
  *
- * Default is on, per firelzrd's "vm.workingset_protection: On by default".
+ * Default is off: on-by-default caused device freezes, so it is flipped
+ * to 0 and must be enabled explicitly via vm.workingset_protection=1.
  * This is the ONE definition of the symbol; mm/vmscan.c only consumes it.
  */
 /*
@@ -511,7 +512,7 @@ unsigned long sysctl_admin_reserve_kbytes __read_mostly; /* 0MB */
  * 4.9's intvec sysctls read/write sizeof(int). The handler normalises it to
  * 0/1, and every consumer only tests it for truth.
  */
-int sysctl_workingset_protection __read_mostly = 1;
+int sysctl_workingset_protection __read_mostly = 0;
 /*
  * 4.9 adaptation: upstream le9uo declares these u8 and uses
  * proc_dou8vec_minmax + SYSCTL_ZERO/SYSCTL_ONE_HUNDRED, none of which exist
