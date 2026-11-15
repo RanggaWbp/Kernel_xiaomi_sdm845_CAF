@@ -306,7 +306,7 @@
 };
 &pmi8998_charger {
 	qcom,usb-icl-ua = <2750000>;
-	qcom,fcc-max-ua = <3300000>;
+	qcom,fcc-max-ua = <3100000>;
 	qcom,dc-icl-ua = <1100000>;
 	qcom,fcc-low-temp-delta = <2970000>;
 	qcom,fcc-hot-temp-delta = <1650000>;
@@ -358,7 +358,7 @@
 	qcom,fg-cutoff-current = <200>;
 	qcom,fg-empty-voltage = <3100>;
 	qcom,fg-jeita-hyst-temp = <1>;
-	qcom,fg-jeita-thresholds = <0 15 75 85>;
+	qcom,fg-jeita-thresholds = <0 15 45 60>;
 	qcom,fg-esr-clamp-mohms = <60>;
 	qcom,fg-batt-temp-delta = <6>;
 	qcom,battery-data = <&mtp_batterydata>;
