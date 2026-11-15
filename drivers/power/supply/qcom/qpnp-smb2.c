@@ -1591,10 +1591,14 @@ static int smb2_batt_set_prop(struct power_supply *psy,
 		vote(chg->fcc_votable, BATT_PROFILE_VOTER, true, val->intval);
 		break;
 	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT:
-		if (val->intval)
-			vote(chg->fcc_votable, FG_ESR_VOTER, true, val->intval);
-		else
-			vote(chg->fcc_votable, FG_ESR_VOTER, false, 0);
+		/*
+		 * MIUI's battery service writes ~1950mA here, voting
+		 * FG_ESR_VOTER and capping effective FCC below the battery-
+		 * profile 3300mA. Always remove that vote (also clears any
+		 * earlier vote) so BATT_PROFILE stays authoritative. Kernel
+		 * ESR extraction's temporary 100mA/0 votes are harmless.
+		 */
+		vote(chg->fcc_votable, FG_ESR_VOTER, false, 0);
 		break;
 	case POWER_SUPPLY_PROP_SET_SHIP_MODE:
 		/* Not in ship mode as long as the device is active */
