@@ -1562,16 +1562,12 @@ static int smb2_batt_set_prop(struct power_supply *psy,
 			(val->intval >= 0), val->intval);
 		break;
 	case POWER_SUPPLY_PROP_CURRENT_QNOVO:
-		vote(chg->pl_disable_votable, PL_QNOVO_VOTER,
-			val->intval != -EINVAL && val->intval < 2000000, 0);
-		if (val->intval == -EINVAL) {
-			vote(chg->fcc_votable, BATT_PROFILE_VOTER,
-					true, chg->batt_profile_fcc_ua);
-			vote(chg->fcc_votable, QNOVO_VOTER, false, 0);
-		} else {
-			vote(chg->fcc_votable, QNOVO_VOTER, true, val->intval);
-			vote(chg->fcc_votable, BATT_PROFILE_VOTER, false, 0);
-		}
+		/*
+		 * No-op: MIUI's battery service writes current_qnovo (~1950mA)
+		 * which votes QNOVO_VOTER on fcc_votable and disables
+		 * BATT_PROFILE, capping effective FCC at ~1950mA. Ignore the
+		 * write so battery-profile FCC (3300mA) stays authoritative.
+		 */
 		break;
 	case POWER_SUPPLY_PROP_STEP_CHARGING_ENABLED:
 		chg->step_chg_enabled = !!val->intval;
