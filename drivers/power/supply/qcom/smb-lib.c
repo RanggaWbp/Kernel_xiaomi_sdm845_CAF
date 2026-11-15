@@ -2674,6 +2674,17 @@ int smblib_set_prop_system_temp_level(struct smb_charger *chg,
 	int rc;
 	union power_supply_propval batt_temp = {0, };
 
+	/* KW batteries: disable thermal daemon current cut so fast charge
+	 * stays at full amperage instead of oscillating stop/start when
+	 * the battery warms up. Keep system_temp_level pinned at 0 and
+	 * clear the thermal voter. (Risks: no thermal derating. Called
+	 * by the thermal daemon via POWER_SUPPLY_PROP_SYSTEM_TEMP_LEVEL.)
+	 */
+	if (chg->system_temp_level != 0)
+		vote(chg->usb_icl_votable, THERMAL_DAEMON_VOTER, false, 0);
+	chg->system_temp_level = 0;
+	return 0;
+
 	rc = smblib_get_prop_from_bms(chg,
 				POWER_SUPPLY_PROP_TEMP, &batt_temp);
 	if (rc < 0) {
