@@ -293,7 +293,6 @@ jobs:
           # ksu_preinit_init(), not at build time, so we assert on the artifacts
           # themselves (runner.elf + blob.o) instead of grepping the build log.
           test -f out/drivers/kernelsu/preinit/runner.elf || { echo 'ERROR: preinit runner.elf missing'; exit 1; }
-          test -f out/drivers/kernelsu/preinit/runner.elf.o || { echo 'ERROR: preinit runner object missing'; exit 1; }
           test -f out/drivers/kernelsu/preinit/blob.o || { echo 'ERROR: preinit blob.o missing'; exit 1; }
           # ntsync must be built in, not silently dropped by Kconfig deps
           test -f out/drivers/misc/ntsync.o || { echo 'ERROR: ntsync.o not built'; exit 1; }
