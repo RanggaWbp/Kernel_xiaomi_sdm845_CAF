@@ -843,13 +843,13 @@ bool susfs_is_inode_sus_path(struct inode *inode)
 		}
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 6, 0)
 		if (unlikely(test_bit(AS_FLAGS_SUS_PATH, &fi->inode.i_state) &&
-			!susfs_is_uid_allowed_for_sus_path(i_uid_into_vfsuid(idmap, &fi->inode).val))))
+			!susfs_is_uid_allowed_for_sus_path(i_uid_into_vfsuid(idmap, &fi->inode).val)))
 #elif LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)
 		if (unlikely(test_bit(AS_FLAGS_SUS_PATH, &fi->inode.i_state) &&
-			!susfs_is_uid_allowed_for_sus_path(i_uid_into_mnt(i_user_ns(&fi->inode), &fi->inode).val))))
+			!susfs_is_uid_allowed_for_sus_path(i_uid_into_mnt(i_user_ns(&fi->inode), &fi->inode).val)))
 #else
 		if (unlikely(test_bit(AS_FLAGS_SUS_PATH, &fi->inode.i_state) &&
-			!susfs_is_uid_allowed_for_sus_path(fi->inode.i_uid.val))))
+			!susfs_is_uid_allowed_for_sus_path(fi->inode.i_uid.val)))
 #endif
 		{
 			SUSFS_LOGI("hiding path with ino '%lu'\n", inode->i_ino);
@@ -859,13 +859,13 @@ bool susfs_is_inode_sus_path(struct inode *inode)
 	}
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 6, 0)
 	if (unlikely(test_bit(AS_FLAGS_SUS_PATH, &inode->i_state) &&
-		!susfs_is_uid_allowed_for_sus_path(i_uid_into_vfsuid(idmap, inode).val))))
+		!susfs_is_uid_allowed_for_sus_path(i_uid_into_vfsuid(idmap, inode).val)))
 #elif LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)
 	if (unlikely(test_bit(AS_FLAGS_SUS_PATH, &inode->i_state) &&
-		!susfs_is_uid_allowed_for_sus_path(i_uid_into_mnt(i_user_ns(inode), inode).val))))
+		!susfs_is_uid_allowed_for_sus_path(i_uid_into_mnt(i_user_ns(inode), inode).val)))
 #else
 	if (unlikely(test_bit(AS_FLAGS_SUS_PATH, &inode->i_state) &&
-		!susfs_is_uid_allowed_for_sus_path(inode->i_uid.val))))
+		!susfs_is_uid_allowed_for_sus_path(inode->i_uid.val)))
 #endif
 	{
 		SUSFS_LOGI("hiding path with ino '%lu'\n", inode->i_ino);
