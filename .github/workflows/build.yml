@@ -267,45 +267,32 @@ jobs:
       - name: Build kernel Image.gz
         run: |
           set -o pipefail
-          # BakaSU main ships a "module preinit" runner (kernel/preinit/runner,
-          # a vendored nolibc binary that preinit/blob.S .incbins into
-          # .init.rodata). Its makefile,
-          # kernel/tools/code_generation/preinit_runner/preinit_runner.mk,
-          # says outright that it is meant for GKI kernels: "built against the
-          # installed UAPI headers of the target kernel (CONFIG_HEADERS_INSTALL,
-          # enabled by gki_defconfig)". On this 4.9 CAF tree its gate passes by
-          # accident and the build then dies:
+          # BakaSU preinit: a static nolibc runner (kernel/preinit/runner) that
+          # preinit/blob.S .incbins into .init.rodata. It is swapped in for the
+          # first "/system/bin/init selinux_setup" execve of PID 1, letting
+          # KernelSU act before SELinux locks down. Android 10+ init runs
+          # selinux_setup without a separate execve, so without preinit the
+          # KernelSU init hook can't intercept and the boot path differs.
+          # The upstream preinit_runner.mk builds the runner with the host
+          # clang (no --target), which on this 4.9 CAF tree produces an
+          # x86_64 object the aarch64 linker rejects:
           #   aarch64-linux-android-ld: drivers/kernelsu/preinit/runner.elf.o:
           #       Relocations in generic ELF (EM: 62)
           #   blob.S:10: Error: file not found: .../out/drivers/kernelsu/preinit/runner.elf
-          # The feature cannot be turned off from this tree any other way: its
-          # own fallback branch (the `else` of the UAPI header check) is what
-          # both drops preinit/{preinit,blob}.o from kernelsu-objs and defines
-          # KSU_NO_PREINIT, and defining KSU_NO_PREINIT alone leaves preinit.c
-          # compiled, where it redefines ksu_preinit_init() against the
-          # header's static inline. Reaching that fallback needs
-          # $(objtree)/usr/include/linux/unistd.h to be absent, so we make
-          # out/usr/include a file: the gate's wildcard then matches nothing,
-          # the nested headers_install cannot create the directory, and
-          # upstream takes its own documented path. out/usr itself must be a
-          # real directory, because usr/Makefile builds gen_init_cpio and
-          # initramfs_data.o there -- and it does not exist yet at this point,
-          # since only the kernel build creates it, so it has to be made
-          # first. A bare `: > out/usr/include` fails with "No such file or
-          # directory" and kills the step before make ever runs.
-          mkdir -p out/usr && : > out/usr/include
+          # We force --target=aarch64-linux-gnu (sed below) so the runner builds
+          # and links for arm64 and preinit is enabled. headers_install runs
+          # automatically once we stop shadowing out/usr/include with a file.
+          sed -i 's|-ffreestanding|--target=aarch64-linux-gnu -ffreestanding|' BakaSU/kernel/tools/code_generation/preinit_runner/preinit_runner.mk
           # Capture build stdout: BakaSU kernel/Kbuild prints its own version
           # banner via $(info ...). Grep that instead of recomputing from the
           # submodule, so Kbuild stays the single source of truth.
           make -j$(nproc) ARCH=$KERNEL_ARCH CC="$PWD/tc/zyc-clang/bin/clang" CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE="$PWD/tc/zyc-clang/bin/aarch64-linux-gnu-" CROSS_COMPILE_ARM32="$PWD/tc/zyc-clang/bin/arm-linux-gnueabi-" O=out Image.gz 2>&1 | tee build-${{ matrix.device }}.log
           cp out/arch/arm64/boot/Image.gz out/Image.gz/
-          # Prove the preinit fallback actually ran, instead of assuming it.
-          # Upstream prints this itself; if it is gone the gate changed and
-          # this line must be re-derived, not left passing silently.
-          grep -q 'preinit disabled' build-${{ matrix.device }}.log || { echo 'ERROR: BakaSU preinit fallback did not run'; exit 1; }
-          # And prove nothing from the runner leaked into the image.
-          test ! -e out/drivers/kernelsu/preinit/runner.elf.o || { echo 'ERROR: preinit runner object was built'; exit 1; }
-          test ! -e out/drivers/kernelsu/preinit/blob.o || { echo 'ERROR: preinit blob.o was built'; exit 1; }
+          # Prove the preinit runner actually staged and linked into the image.
+          grep -q 'preinit: runner staged' build-${{ matrix.device }}.log || { echo 'ERROR: BakaSU preinit runner did not build'; exit 1; }
+          # And prove the runner object really compiled and linked (not dropped).
+          test -f out/drivers/kernelsu/preinit/runner.elf.o || { echo 'ERROR: preinit runner object missing'; exit 1; }
+          test -f out/drivers/kernelsu/preinit/blob.o || { echo 'ERROR: preinit blob.o missing'; exit 1; }
           # ntsync must be built in, not silently dropped by Kconfig deps
           test -f out/drivers/misc/ntsync.o || { echo 'ERROR: ntsync.o not built'; exit 1; }
           # POC Selector is #included into fair.o, so fair.o is the only
