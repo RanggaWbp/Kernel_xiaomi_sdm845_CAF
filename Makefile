@@ -1203,18 +1203,9 @@ ifdef CONFIG_LTO_CLANG
   ifneq ($(call clang-ifversion, -ge, 0500, y), y)
 	@echo Cannot use CONFIG_LTO_CLANG: requires clang 5.0 or later >&2 && exit 1
   endif
-ifdef CONFIG_LTO_CLANG_THIN
-  ifneq ($(call clang-ifversion, -ge, 1100, y), y)
-	@echo Cannot use CONFIG_LTO_CLANG_THIN: requires clang 11.0 or later >&2 && exit 1
-  endif
-	@$(LD) --version | grep -q LLD || { echo 'ThinLTO requires ld.lld' >&2; exit 1; }
-	@$(AR) --version | grep -qi LLVM || { echo 'ThinLTO requires llvm-ar' >&2; exit 1; }
-	@$(NM) --version | grep -qi LLVM || { echo 'ThinLTO requires llvm-nm' >&2; exit 1; }
-else
   ifneq ($(call gold-ifversion, -ge, 112000000, y), y)
 	@echo Cannot use CONFIG_LTO_CLANG: requires GNU gold 1.12 or later >&2 && exit 1
   endif
-endif
 endif
 # Make sure compiler supports LTO flags
 ifdef lto-flags

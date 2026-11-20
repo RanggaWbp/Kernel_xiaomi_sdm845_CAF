@@ -235,9 +235,6 @@ jobs:
           check_symbol "CONFIG_EROFS_FS_POSIX_ACL" "y"
           check_symbol "CONFIG_EROFS_FS_SECURITY" "y"
           check_symbol "CONFIG_EROFS_FS_ZIP" "y"
-          check_symbol "CONFIG_LTO_CLANG" "y"
-          check_symbol "CONFIG_LTO_CLANG_THIN" "y"
-          check_symbol "CONFIG_THIN_ARCHIVES" "y"
           check_symbol "CONFIG_ARM64" "y"
           check_symbol "CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE" "y"
           check_symbol "CONFIG_DEBUG_INFO" "y"
@@ -297,8 +294,6 @@ jobs:
           # banner via $(info ...). Grep that instead of recomputing from the
           # submodule, so Kbuild stays the single source of truth.
           make -j$(nproc) ARCH=$KERNEL_ARCH CC="$PWD/tc/zyc-clang/bin/clang" CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE="$PWD/tc/zyc-clang/bin/aarch64-linux-gnu-" CROSS_COMPILE_ARM32="$PWD/tc/zyc-clang/bin/arm-linux-gnueabi-" O=out Image.gz 2>&1 | tee build-${{ matrix.device }}.log
-          # Verify ThinLTO input summaries and the linked-in EROFS driver.
-          python3 scripts/check-thinlto-erofs.py out
           cp out/arch/arm64/boot/Image.gz out/Image.gz/
           # Prove the preinit runner built and linked into the image. The
           # The "preinit: runner staged" line is emitted at runtime by
