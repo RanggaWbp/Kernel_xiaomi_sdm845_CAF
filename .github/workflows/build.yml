@@ -312,10 +312,11 @@ jobs:
           # object that proves it compiled into the image.
           test -f out/kernel/sched/fair.o || { echo 'ERROR: fair.o not built'; exit 1; }
           # Cambyses must have really reached the image, not just be present
-          # in the source: the late_initcall banner is the only artifact in
-          # fair.o that proves the code compiled in rather than being
-          # #ifdef'd or dropped by a config dependency.
-          strings out/kernel/sched/fair.o | grep -q 'Cambyses CFS Load Balancer modification' || { echo 'ERROR: Cambyses not compiled into fair.o'; exit 1; }
+          # in the source: the late_initcall banner is the only artifact that
+          # proves the code compiled in rather than being #ifdef'd or dropped
+          # by a config dependency. fair.o is ThinLTO bitcode (string literals
+          # invisible to `strings`), so verify the final linked vmlinux ELF.
+          strings out/vmlinux | grep -q 'Cambyses CFS Load Balancer modification' || { echo 'ERROR: Cambyses not compiled into vmlinux'; exit 1; }
           # LZ4KD: the crypto algorithm must really be built, not just =y in
           # .config, or "lz4kdr" never reaches comp_algorithm.
           test -f out/crypto/lz4kdr.o || { echo 'ERROR: lz4kdr.o not built'; exit 1; }
