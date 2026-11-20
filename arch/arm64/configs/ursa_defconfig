@@ -750,6 +750,7 @@ CONFIG_CGROUP_NET_PRIO=y
 
 # Device filesystem support
 CONFIG_DEVTMPFS=y
+CONFIG_DEVTMPFS_MOUNT=y
 
 # Overlay filesystem support (required for volatile mode)
 CONFIG_OVERLAY_FS=y
