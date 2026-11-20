@@ -707,9 +707,9 @@ endif
 
 ifdef CONFIG_LTO_CLANG
 ifdef CONFIG_LTO_CLANG_THIN
-lto-clang-flags := -flto=thin -fsplit-lto-unit
+lto-clang-flags := -flto=thin -fsplit-lto-unit -fvisibility=hidden
 else
-lto-clang-flags	:= -flto
+lto-clang-flags	:= -flto -fvisibility=hidden
 endif
 
 # allow disabling only clang LTO where needed
