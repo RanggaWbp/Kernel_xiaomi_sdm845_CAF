@@ -861,14 +861,20 @@ static int z_erofs_decompress_pcluster(struct super_block *sb,
 		pages = kmalloc_array(nr_pages, sizeof(struct page *),
 				       GFP_KERNEL);
 
-		if (!pages) 
-			pages = vmalloc(nr_pages * sizeof(struct page *));
+		if (!pages)
+			pages = vmalloc(array_size(nr_pages, sizeof(*pages)));
 
-		if (!pages && nr_pages > Z_EROFS_VMAP_GLOBAL_PAGES)
-			pages = kmalloc_array(nr_pages, sizeof(struct page *),
-				       __GFP_NOFAIL);
+		/*
+		 * Large collections cannot use the bounded global pagemap.
+		 * Retry virtually contiguous memory, not a high-order NOFAIL
+		 * kmalloc allocation. This preserves the no-fail contract.
+		 */
+		while (!pages && nr_pages > Z_EROFS_VMAP_GLOBAL_PAGES) {
+			schedule_timeout_uninterruptible(1);
+			pages = vmalloc(array_size(nr_pages, sizeof(*pages)));
+		}
 
-		/* fallback to global pagemap for the lowmem scenario */
+		/* The global fallback must fit every output page pointer. */
 		if (!pages) {
 			mutex_lock(&z_pagemap_global_lock);
 			pages = z_pagemap_global;

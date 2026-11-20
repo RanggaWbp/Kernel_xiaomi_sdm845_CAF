@@ -654,9 +654,15 @@ export CFLAGS_GCOV CFLAGS_KCOV
 # ar/cc/ld-* macros return correct values.
 ifdef CONFIG_LTO_CLANG
 ifdef CONFIG_LTO_CLANG_THIN
-# use lld for ThinLTO linking
-LD := $(CROSS_COMPILE)ld.lld
-KBUILD_LDFLAGS += --thinlto-cache-dir=$(objtree)/.thinlto-cache
+# LLVM linkers are not named with the GNU cross-compiler prefix.
+ifeq ($(origin LD), default)
+LD := ld.lld
+else ifeq ($(origin LD), file)
+LD := ld.lld
+endif
+AR := llvm-ar
+NM := llvm-nm
+LDFLAGS += --thinlto-cache-dir=$(if $(KBUILD_EXTMOD),$(KBUILD_EXTMOD)/,$(objtree)/).thinlto-cache
 # use llvm-ar for building symbol tables from IR files, and llvm-dis instead
 # of objdump for processing symbol versions and exports
 LLVM_AR := llvm-ar
@@ -1218,9 +1224,18 @@ ifdef CONFIG_LTO_CLANG
   ifneq ($(call clang-ifversion, -ge, 0500, y), y)
 	@echo Cannot use CONFIG_LTO_CLANG: requires clang 5.0 or later >&2 && exit 1
   endif
+ifdef CONFIG_LTO_CLANG_THIN
+  ifneq ($(call clang-ifversion, -ge, 1100, y), y)
+	@echo Cannot use CONFIG_LTO_CLANG_THIN: requires clang 11.0 or later >&2 && exit 1
+  endif
+	@$(LD) --version | grep -q LLD || { echo 'ThinLTO requires ld.lld' >&2; exit 1; }
+	@$(AR) --version | grep -qi LLVM || { echo 'ThinLTO requires llvm-ar' >&2; exit 1; }
+	@$(NM) --version | grep -qi LLVM || { echo 'ThinLTO requires llvm-nm' >&2; exit 1; }
+else
   ifneq ($(call gold-ifversion, -ge, 112000000, y), y)
 	@echo Cannot use CONFIG_LTO_CLANG: requires GNU gold 1.12 or later >&2 && exit 1
   endif
+endif
 endif
 # Make sure compiler supports LTO flags
 ifdef lto-flags
