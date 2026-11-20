@@ -653,15 +653,26 @@ export CFLAGS_GCOV CFLAGS_KCOV
 # Make toolchain changes before including arch/$(SRCARCH)/Makefile to ensure
 # ar/cc/ld-* macros return correct values.
 ifdef CONFIG_LTO_CLANG
-# use GNU gold with LLVMgold for LTO linking, and LD for vmlinux_link
-LDFINAL_vmlinux := $(LD)
-LD		:= $(LDGOLD)
-LDFLAGS		+= -plugin LLVMgold.so
+ifdef CONFIG_LTO_CLANG_THIN
+# use lld for ThinLTO linking
+LD := $(CROSS_COMPILE)ld.lld
+KBUILD_LDFLAGS += --thinlto-cache-dir=$(objtree)/.thinlto-cache
 # use llvm-ar for building symbol tables from IR files, and llvm-dis instead
 # of objdump for processing symbol versions and exports
-LLVM_AR		:= llvm-ar
-LLVM_DIS	:= llvm-dis
+LLVM_AR := llvm-ar
+LLVM_DIS := llvm-dis
 export LLVM_AR LLVM_DIS
+else
+# use GNU gold with LLVMgold for LTO linking, and LD for vmlinux_link
+LDFINAL_vmlinux := $(LD)
+LD := $(LDGOLD)
+LDFLAGS += -plugin LLVMgold.so
+# use llvm-ar for building symbol tables from IR files, and llvm-dis instead
+# of objdump for processing symbol versions and exports
+LLVM_AR := llvm-ar
+LLVM_DIS := llvm-dis
+export LLVM_AR LLVM_DIS
+endif
 endif
 
 # The arch Makefile can set ARCH_{CPP,A,C}FLAGS to override the default
@@ -689,7 +700,11 @@ KBUILD_CFLAGS	+= $(call cc-option,-fdata-sections,)
 endif
 
 ifdef CONFIG_LTO_CLANG
+ifdef CONFIG_LTO_CLANG_THIN
+lto-clang-flags := -flto=thin -fsplit-lto-unit -fvisibility=hidden
+else
 lto-clang-flags	:= -flto -fvisibility=hidden
+endif
 
 # allow disabling only clang LTO where needed
 DISABLE_LTO_CLANG := -fno-lto -fvisibility=default
