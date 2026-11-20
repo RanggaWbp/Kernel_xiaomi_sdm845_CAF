@@ -15,6 +15,11 @@ selinux-$(CONFIG_NETLABEL) += netlabel.o
 
 ccflags-y := -I$(srctree)/security/selinux -I$(srctree)/security/selinux/include
 
+# ThinLTO miscompiles SELinux policy load (security_load_policy faults on a
+# vmalloc policy buffer: "str w10,[x23]" -> L2 translation fault, Oops
+# 9600004e). Build SELinux as plain object code to keep policy load correct.
+ccflags-y += $(DISABLE_LTO_CLANG)
+
 $(addprefix $(obj)/,$(selinux-y)): $(obj)/flask.h
 
 quiet_cmd_flask = GEN     $(obj)/flask.h $(obj)/av_permissions.h
