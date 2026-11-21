@@ -229,6 +229,20 @@ struct css_set {
 	struct rcu_head rcu_head;
 };
 
+/*
+ * cgroup freezer state, protected by css_set_lock.
+ */
+struct cgroup_freezer_state {
+	/* freeze is true if the cgroup is frozen or freezing */
+	bool freeze;
+	/* e_freeze is the number of freezing ancestors */
+	int e_freeze;
+	/* nr_frozen_tasks is the number of frozen tasks in the cgroup */
+	int nr_frozen_tasks;
+	/* nr_frozen_descendants is the number of frozen descendants */
+	int nr_frozen_descendants;
+};
+
 struct cgroup {
 	/* self css with NULL ->ss, points back to this cgroup */
 	struct cgroup_subsys_state self;
@@ -329,16 +343,6 @@ struct cgroup {
 /*
  * cgroup freezer state, protected by css_set_lock.
  */
-struct cgroup_freezer_state {
-	/* freeze is true if the cgroup is frozen or freezing */
-	bool freeze;
-	/* e_freeze is the number of freezing ancestors */
-	int e_freeze;
-	/* nr_frozen_tasks is the number of frozen tasks in the cgroup */
-	int nr_frozen_tasks;
-	/* nr_frozen_descendants is the number of frozen descendants */
-	int nr_frozen_descendants;
-};
 
 /*
  * A cgroup_root represents the root of a cgroup hierarchy, and may be
