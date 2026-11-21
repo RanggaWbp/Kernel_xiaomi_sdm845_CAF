@@ -62,6 +62,12 @@ enum {
 	 * specified at mount time and thus is implemented here.
 	 */
 	CGRP_CPUSET_CLONE_CHILDREN,
+
+	/* Control group has to be frozen. */
+	CGRP_FREEZE,
+
+	/* Cgroup is frozen. */
+	CGRP_FROZEN,
 };
 
 /* cgroup_root->flags */
@@ -255,9 +261,15 @@ struct cgroup {
 	 */
 	int populated_cnt;
 
+	/* Number of descendants (including self) */
+	int nr_descendants;
+	/* Number of dying descendants */
+	int nr_dying_descendants;
+
 	struct kernfs_node *kn;		/* cgroup kernfs entry */
 	struct cgroup_file procs_file;	/* handle for "cgroup.procs" */
 	struct cgroup_file events_file;	/* handle for "cgroup.events" */
+	struct cgroup_freezer_state freezer;
 
 	/*
 	 * The bitmask of subsystems enabled on the child cgroups.
@@ -312,6 +324,20 @@ struct cgroup {
 
 	/* ids of the ancestors at each level including self */
 	int ancestor_ids[];
+};
+
+/*
+ * cgroup freezer state, protected by css_set_lock.
+ */
+struct cgroup_freezer_state {
+	/* freeze is true if the cgroup is frozen or freezing */
+	bool freeze;
+	/* e_freeze is the number of freezing ancestors */
+	int e_freeze;
+	/* nr_frozen_tasks is the number of frozen tasks in the cgroup */
+	int nr_frozen_tasks;
+	/* nr_frozen_descendants is the number of frozen descendants */
+	int nr_frozen_descendants;
 };
 
 /*
