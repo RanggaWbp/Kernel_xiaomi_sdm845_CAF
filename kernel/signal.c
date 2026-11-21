@@ -29,6 +29,7 @@
 #include <linux/tracehook.h>
 #include <linux/capability.h>
 #include <linux/freezer.h>
+#include <linux/cgroup.h>
 #include <linux/pid_namespace.h>
 #include <linux/nsproxy.h>
 #include <linux/user_namespace.h>
@@ -148,7 +149,9 @@ static int recalc_sigpending_tsk(struct task_struct *t)
 {
 	if ((t->jobctl & JOBCTL_PENDING_MASK) ||
 	    PENDING(&t->pending, &t->blocked) ||
-	    PENDING(&t->signal->shared_pending, &t->blocked)) {
+	    PENDING(&t->signal->shared_pending, &t->blocked) ||
+	    (t->jobctl & JOBCTL_TRAP_FREEZE) ||
+	    cgroup_task_frozen(t)) {
 		set_tsk_thread_flag(t, TIF_SIGPENDING);
 		return 1;
 	}
@@ -2125,6 +2128,32 @@ static bool do_signal_stop(int signr)
  * Must be called with @current->sighand->siglock held, which may be
  * released and re-acquired before returning with intervening sleep.
  */
+static void do_freezer_trap(void)
+{
+	/*
+	 * Freeze the task.  It will be unfrozen when the cgroup is
+	 * unfrozen.
+	 */
+	WARN_ON_ONCE(current->frozen);
+
+	cgroup_enter_frozen();
+	current->jobctl &= ~JOBCTL_TRAP_FREEZE;
+	spin_unlock_irq(&current->sighand->siglock);
+
+	/*
+	 * Wait for the cgroup to be unfrozen, then re-calculate the
+	 * pending signals.
+	 */
+	retry:
+	spin_lock_irq(&current->sighand->siglock);
+	if (test_bit(CGRP_FREEZE, &task_dfl_cgroup(current)->flags)) {
+		spin_unlock_irq(&current->sighand->siglock);
+		schedule();
+		goto retry;
+	}
+	cgroup_leave_frozen(true);
+}
+
 static void do_jobctl_trap(void)
 {
 	struct signal_struct *signal = current->signal;
@@ -2262,6 +2291,12 @@ relock:
 	for (;;) {
 		struct k_sigaction *ka;
 
+		if (unlikely(current->jobctl & JOBCTL_TRAP_FREEZE)) {
+			do_freezer_trap();
+			spin_unlock_irq(&sighand->siglock);
+			goto relock;
+		}
+
 		if (unlikely(current->jobctl & JOBCTL_STOP_PENDING) &&
 		    do_signal_stop(0))
 			goto relock;
@@ -2364,6 +2399,12 @@ relock:
 
 	fatal:
 		spin_unlock_irq(&sighand->siglock);
+
+		/*
+		 * The task is dying, remove it from the frozen state.
+		 */
+		current->jobctl &= ~JOBCTL_TRAP_FREEZE;
+		cgroup_leave_frozen(true);
 
 		/*
 		 * Anything else is fatal, maybe with a core dump.

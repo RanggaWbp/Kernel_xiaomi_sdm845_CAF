@@ -469,11 +469,10 @@ out_unlock:
 }
 
 /* convenient tests for these bits */
-static inline bool cgroup_is_dead(const struct cgroup *cgrp)
+bool cgroup_is_dead(const struct cgroup *cgrp)
 {
 	return !(cgrp->self.flags & CSS_ONLINE);
 }
-
 struct cgroup_subsys_state *of_css(struct kernfs_open_file *of)
 {
 	struct cgroup *cgrp = of->kn->parent->priv;
@@ -2586,6 +2585,12 @@ static int cgroup_taskset_migrate(struct cgroup_taskset *tset,
 
 			get_css_set(to_cset);
 			css_set_move_task(task, from_cset, to_cset, true);
+			/*
+			 * If the source or destination cgroup is frozen,
+			 * the task might require to change its state.
+			 */
+			cgroup_freezer_migrate_task(task, from_cset->dfl_cgrp,
+						    to_cset->dfl_cgrp);
 			put_css_set_locked(from_cset);
 		}
 	}
@@ -3548,8 +3553,11 @@ out_unlock:
 
 static int cgroup_events_show(struct seq_file *seq, void *v)
 {
-	seq_printf(seq, "populated %d\n",
-		   cgroup_is_populated(seq_css(seq)->cgroup));
+	struct cgroup *cgrp = seq_css(seq)->cgroup;
+
+	seq_printf(seq, "populated %d\n", cgroup_is_populated(cgrp));
+	seq_printf(seq, "frozen %d\n", test_bit(CGRP_FROZEN, &cgrp->flags));
+
 	return 0;
 }
 
@@ -3630,6 +3638,40 @@ static void cgroup_pressure_release(struct kernfs_open_file *of)
 	psi_trigger_destroy(of->priv);
 }
 #endif /* CONFIG_PSI */
+
+static int cgroup_freeze_show(struct seq_file *seq, void *v)
+{
+	struct cgroup *cgrp = seq_css(seq)->cgroup;
+
+	seq_printf(seq, "%d\n", cgrp->freezer.freeze);
+
+	return 0;
+}
+
+static ssize_t cgroup_freeze_write(struct kernfs_open_file *of,
+				   char *buf, size_t nbytes, loff_t off)
+{
+	struct cgroup *cgrp;
+	ssize_t ret;
+	int freeze;
+
+	ret = kstrtoint(strstrip(buf), 0, &freeze);
+	if (ret)
+		return ret;
+
+	if (freeze < 0 || freeze > 1)
+		return -ERANGE;
+
+	cgrp = cgroup_kn_lock_live(of->kn, false);
+	if (!cgrp)
+		return -ENOENT;
+
+	cgroup_freeze(cgrp, freeze);
+
+	cgroup_kn_unlock(of->kn);
+
+	return nbytes;
+}
 
 static int cgroup_file_open(struct kernfs_open_file *of)
 {
@@ -4113,6 +4155,23 @@ static int cgroup_task_count(const struct cgroup *cgrp)
 	list_for_each_entry(link, &cgrp->cset_links, cset_link)
 		count += atomic_read(&link->cset->refcount);
 	spin_unlock_irq(&css_set_lock);
+	return count;
+}
+
+/*
+ * __cgroup_task_count - count the number of tasks in a cgroup.
+ * @cgrp: the cgroup in question
+ *
+ * Returns the number of tasks in the cgroup.  The caller must hold
+ * css_set_lock.  This is used by the cgroup v2 freezer.
+ */
+int __cgroup_task_count(const struct cgroup *cgrp)
+{
+	int count = 0;
+	struct cgrp_cset_link *link;
+
+	list_for_each_entry(link, &cgrp->cset_links, cset_link)
+		count += atomic_read(&link->cset->refcount);
 	return count;
 }
 
@@ -5089,6 +5148,12 @@ static struct cftype cgroup_dfl_base_files[] = {
 		.file_offset = offsetof(struct cgroup, events_file),
 		.seq_show = cgroup_events_show,
 	},
+	{
+		.name = "cgroup.freeze",
+		.flags = CFTYPE_NOT_ON_ROOT,
+		.seq_show = cgroup_freeze_show,
+		.write = cgroup_freeze_write,
+	},
 #ifdef CONFIG_PSI
 	{
 		.name = "io.pressure",
@@ -5465,8 +5530,31 @@ static struct cgroup *cgroup_create(struct cgroup *parent)
 	if (ret)
 		goto out_idr_free;
 
-	for (tcgrp = cgrp; tcgrp; tcgrp = cgroup_parent(tcgrp))
+	/*
+	 * New cgroup inherits effective freeze counter, and if the parent
+	 * has to be frozen, the child has too.
+	 */
+	cgrp->freezer.e_freeze = parent->freezer.e_freeze;
+	if (cgrp->freezer.e_freeze)
+		set_bit(CGRP_FROZEN, &cgrp->flags);
+
+	spin_lock_irq(&css_set_lock);
+	for (tcgrp = cgrp; tcgrp; tcgrp = cgroup_parent(tcgrp)) {
 		cgrp->ancestor_ids[tcgrp->level] = tcgrp->id;
+
+		if (tcgrp != cgrp) {
+			tcgrp->nr_descendants++;
+
+			/*
+			 * If the new cgroup is frozen, all ancestor cgroups
+			 * get a new frozen descendant, but their state can't
+			 * change because of this.
+			 */
+			if (cgrp->freezer.e_freeze)
+				tcgrp->freezer.nr_frozen_descendants++;
+		}
+	}
+	spin_unlock_irq(&css_set_lock);
 
 	if (notify_on_release(parent))
 		set_bit(CGRP_NOTIFY_ON_RELEASE, &cgrp->flags);
@@ -5681,6 +5769,7 @@ static int cgroup_destroy_locked(struct cgroup *cgrp)
 {
 	struct cgroup_subsys_state *css;
 	struct cgrp_cset_link *link;
+	struct cgroup *tcgrp;
 	int ssid;
 
 	lockdep_assert_held(&cgroup_mutex);
@@ -5727,6 +5816,15 @@ static int cgroup_destroy_locked(struct cgroup *cgrp)
 
 	/* put the base reference */
 	percpu_ref_kill(&cgrp->self.refcnt);
+
+	spin_lock_irq(&css_set_lock);
+	for (tcgrp = cgroup_parent(cgrp); tcgrp; tcgrp = cgroup_parent(tcgrp)) {
+		tcgrp->nr_descendants--;
+		tcgrp->nr_dying_descendants++;
+		if (test_bit(CGRP_FROZEN, &cgrp->flags))
+			tcgrp->freezer.nr_frozen_descendants--;
+	}
+	spin_unlock_irq(&css_set_lock);
 
 	return 0;
 };
@@ -6206,6 +6304,14 @@ void cgroup_post_fork(struct task_struct *child)
 	int i;
 
 	/*
+	 * If the cgroup is freezing, the new task has to be frozen too.
+	 */
+	spin_lock_irq(&css_set_lock);
+	if (test_bit(CGRP_FREEZE, &task_dfl_cgroup(current)->flags))
+		child->jobctl |= JOBCTL_TRAP_FREEZE;
+	spin_unlock_irq(&css_set_lock);
+
+	/*
 	 * This may race against cgroup_enable_task_cg_lists().  As that
 	 * function sets use_task_css_set_links before grabbing
 	 * tasklist_lock and we just went through tasklist_lock to add
@@ -6281,6 +6387,8 @@ void cgroup_exit(struct task_struct *tsk)
 
 	if (!list_empty(&tsk->cg_list)) {
 		spin_lock_irq(&css_set_lock);
+		if (tsk->frozen)
+			cgroup_freezer_frozen_exit(tsk);
 		css_set_move_task(tsk, cset, NULL, false);
 		spin_unlock_irq(&css_set_lock);
 	} else {
