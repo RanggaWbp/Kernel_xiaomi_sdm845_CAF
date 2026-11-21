@@ -130,7 +130,7 @@ SCHED_FEAT(LB_ROTATE_BLOCK, false)
  *
  * Turn off to get the upstream (cost / 2) comparison.
  */
-SCHED_FEAT(LB_STRICT_BUDGET, true)
+SCHED_FEAT(LB_CONCEDE_CHEAPEST, true)
 
 /*
  * Energy aware scheduling. Use platform energy model to guide scheduling

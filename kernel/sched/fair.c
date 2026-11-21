@@ -8583,6 +8583,7 @@ enum group_type {
  * else.  0x20 is free in this tree: there is no LBF_ACTIVE_LB here.
  */
 #define LBF_MOVED	0x20
+#define LBF_DST_REDIRECTED 0x40
 #define LBF_BIG_TASK_ACTIVE_BALANCE 0x80
 #define LBF_IGNORE_BIG_TASKS 0x100
 #define LBF_IGNORE_PREFERRED_CLUSTER_TASKS 0x200
@@ -8895,7 +8896,7 @@ static inline void list_rotate_to_front(struct list_head *new_first,
 #define SCHED_CAMBYSES_AUTHOR	"Masahito Suzuki"
 #define SCHED_CAMBYSES_PROGNAME	"Cambyses CFS Load Balancer modification"
 
-#define SCHED_CAMBYSES_VERSION	"0.6.0"
+#define SCHED_CAMBYSES_VERSION	"0.7.2"
 
 static int __init sched_cambyses_init(void)
 {
@@ -8926,21 +8927,41 @@ struct lb_concession {
 /*
  * Does moving @p, costing @cost, fit the remaining imbalance budget?
  *
- * LB_STRICT_BUDGET compares directly and notes the smallest overshoot seen so
- * far.  Upstream instead relaxes the comparison; see features.h for why that
- * relaxation is unreachable while cheaper candidates keep succeeding.
+ * LB_CONCEDE_CHEAPEST compares directly and notes the smallest overshoot seen
+ * so far.  Upstream instead relaxes the comparison; see features.h for why
+ * that relaxation is unreachable while cheaper candidates keep succeeding.
+ *
+ * An overshoot is noted only if moving it still shrinks the imbalance:
+ * moving @cost against an imbalance I leaves |I - cost|, which is smaller
+ * than I only while cost < 2 * I.  This also rules out a bounce.  The move
+ * leaves the reverse direction an imbalance of cost - I, and pulling the
+ * same task back would need cost < 2 * (cost - I), that is cost > 2 * I.
  *
  * This tree has no shr_bound(): its rule is the plain (cost / 2) test below,
- * which is what the !LB_STRICT_BUDGET branch reproduces exactly.
+ * which is what the !LB_CONCEDE_CHEAPEST branch reproduces exactly.
  */
+static inline bool lb_concede_cheapest(struct lb_env *env)
+{
+	return sched_feat(LB_CONCEDE_CHEAPEST) && env->idle != CPU_NOT_IDLE &&
+	       !(env->flags & LBF_DST_REDIRECTED);
+}
+
 static bool lb_cost_fits(struct lb_env *env, struct lb_concession *concession,
 			 struct task_struct *p, unsigned long cost)
 {
-	if (!sched_feat(LB_STRICT_BUDGET))
+	if (!lb_concede_cheapest(env))
 		return (cost / 2) <= env->imbalance;
 
 	if (cost <= env->imbalance)
 		return true;
+
+	/*
+	 * cost < 2 * imbalance, written so it cannot overflow.  imbalance is
+	 * positive here (detach_tasks() stops once it is not) and cost
+	 * exceeds it, so the subtraction cannot wrap.
+	 */
+	if (cost - env->imbalance >= env->imbalance)
+		return false;
 
 	if (!concession->p || cost < concession->cost) {
 		concession->p = p;
@@ -9100,7 +9121,7 @@ redo:
 		 * there is situation to ignore big task, it is needed
 		 * to skip the task load bigger than 2*imbalance.
 		 *
-		 * With LB_STRICT_BUDGET off, lb_cost_fits() is exactly this
+		 * With LB_CONCEDE_CHEAPEST off, lb_cost_fits() is exactly this
 		 * tree's own (load / 2) > env->imbalance test.
 		 */
 		if (((cpu_rq(env->src_cpu)->nr_running > 2) ||
@@ -9254,7 +9275,7 @@ next:
 	 * other way out for a task larger than the imbalance, so dropping the
 	 * budget relaxation alone would leave it permanently unmovable.
 	 *
-	 * This is the whole reason LB_STRICT_BUDGET can drop the upstream
+	 * This is the whole reason LB_CONCEDE_CHEAPEST can drop the upstream
 	 * relaxation.  Both exist to guarantee progress; this one asks the
 	 * candidates present rather than a domain counter that other tasks'
 	 * successes keep resetting, and it acts on the first scan that admits
@@ -10919,6 +10940,7 @@ more_balance:
 			env.dst_rq	 = cpu_rq(env.new_dst_cpu);
 			env.dst_cpu	 = env.new_dst_cpu;
 			env.flags	&= ~LBF_DST_PINNED;
+			env.flags	|= LBF_DST_REDIRECTED;
 			env.loop	 = 0;
 			env.loop_break	 = sched_nr_migrate_break;
 
