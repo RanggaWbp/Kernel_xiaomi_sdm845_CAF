@@ -433,16 +433,17 @@ static inline void cgroup_unlock(void)
  * as locks used during the cgroup_subsys::attach() methods.
  */
 #ifdef CONFIG_PROVE_RCU
-extern spinlock_t css_set_lock;
-#define task_css_set_check(task, __c)					\
-	rcu_dereference_check((task)->cgroups,				\
-		lockdep_is_held(&cgroup_mutex) ||			\
-		lockdep_is_held(&css_set_lock) ||			\
+#define task_css_set_check(task, __c)						\
+	rcu_dereference_check((task)->cgroups,					\
+		lockdep_is_held(&cgroup_mutex) ||				\
+		lockdep_is_held(&css_set_lock) ||				\
 		((task)->flags & PF_EXITING) || (__c))
 #else
-#define task_css_set_check(task, __c)					\
+#define task_css_set_check(task, __c)						\
 	rcu_dereference((task)->cgroups)
 #endif
+
+extern spinlock_t css_set_lock;
 
 /**
  * task_css_check - obtain css for (task, subsys) w/ extra access conds

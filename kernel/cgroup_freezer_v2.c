@@ -187,7 +187,7 @@ static void cgroup_do_freeze(struct cgroup *cgrp, bool freeze)
 		clear_bit(CGRP_FREEZE, &cgrp->flags);
 	spin_unlock_irq(&css_set_lock);
 
-	css_task_iter_start(&cgrp->self, 0, &it);
+	css_task_iter_start(&cgrp->self, &it);
 	while ((task = css_task_iter_next(&it))) {
 		/*
 		 * Ignore kernel threads here.  Freezing cgroups containing
