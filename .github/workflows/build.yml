@@ -213,6 +213,9 @@ jobs:
           # derives from the DEFAULT_* choice, so without this the image ships
           # bbr3 compiled-in but still running cubic).
           grep -q 'CONFIG_DEFAULT_BBR3=y' out/.config || echo 'CONFIG_DEFAULT_BBR3=y' >> out/.config
+          # WireGuard must be BUILT IN (=y, not =m): the AK3 zip ships only
+          # Image.gz-dtb, so a .ko would never reach the device.
+          grep -q 'CONFIG_WIREGUARD=y' out/.config || echo 'CONFIG_WIREGUARD=y' >> out/.config
 
       - name: Validate critical config symbols
         run: |
@@ -250,6 +253,7 @@ jobs:
           check_symbol "CONFIG_LZ4KDR_DECOMPRESS" "y"
           check_symbol "CONFIG_ANON_MIN_RATIO" "y"
           check_symbol "CONFIG_ZRAM" "y"
+          check_symbol "CONFIG_WIREGUARD" "y"
           check_symbol "CONFIG_TCP_CONG_ADVANCED" "y"
           check_symbol "CONFIG_TCP_CONG_BBR3" "y"
           check_symbol "CONFIG_DEFAULT_BBR3" "y"
@@ -337,6 +341,29 @@ jobs:
           # The built-in tcp_bbr3.o must be inside net/built-in.o; a stray .ko
           # would never be flashed (AK3 ships only Image.gz-dtb).
           test ! -f out/net/ipv4/tcp_bbr3.ko || { echo 'ERROR: tcp_bbr3 built as a module, would never be flashed'; exit 1; }
+          # WireGuard must be built in, not a module: the AK3 zip ships only
+          # Image.gz-dtb, so a .ko would never reach the device. This is a
+          # hard gate on the object files actually being produced.
+          for obj in out/net/wireguard/main.o \
+                     out/net/wireguard/noise.o \
+                     out/net/wireguard/receive.o \
+                     out/net/wireguard/send.o \
+                     out/net/wireguard/socket.o \
+                     out/net/wireguard/timers.o \
+                     out/net/wireguard/device.o \
+                     out/net/wireguard/peer.o \
+                     out/net/wireguard/queueing.o \
+                     out/net/wireguard/peerlookup.o \
+                     out/net/wireguard/allowedips.o \
+                     out/net/wireguard/ratelimiter.o \
+                     out/net/wireguard/cookie.o \
+                     out/net/wireguard/netlink.o; do
+            test -f "$obj" || { echo "ERROR: missing WireGuard build object: $obj"; exit 1; }
+          done
+          test -f out/net/wireguard/crypto/zinc/chacha20/chacha20.o || { echo 'ERROR: zinc chacha20.o not built'; exit 1; }
+          test -f out/net/wireguard/crypto/zinc/poly1305/poly1305.o || { echo 'ERROR: zinc poly1305.o not built'; exit 1; }
+          test -f out/net/wireguard/crypto/zinc/curve25519/curve25519.o || { echo 'ERROR: zinc curve25519.o not built'; exit 1; }
+          test -f out/net/wireguard/crypto/zinc/blake2s/blake2s.o || { echo 'ERROR: zinc blake2s.o not built'; exit 1; }
           mkdir -p artifacts
           # %q: values get shell-quoted, because BMGR contains spaces and commas
           # and the file is sourced later (unquoted, `Official,` ran as a command).
