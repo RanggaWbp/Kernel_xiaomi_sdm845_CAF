@@ -32,6 +32,10 @@
 #include "fuse/fuse_i.h"
 #include "mount.h"
 
+#if IS_ENABLED(CONFIG_SDCARD_FS)
+#include "sdcardfs/sdcardfs.h"
+#endif
+
 extern bool susfs_is_current_ksu_domain(void);
 extern void setup_selinux(const char *domain, struct cred *cred);
 extern struct cred *ksu_cred;
@@ -246,6 +250,52 @@ static void susfs_restore_creds(struct cred *orig_cred) {
 }
 #endif // #ifdef CONFIG_KSU_SUSFS
 
+bool susfs_is_uid_allowed_for_sus_path(uid_t uid);
+
+/* sdcardfs: on devices that still use it (old android, or Android/data and obb
+ * on some newer roms) every storage view (default/read/write/per app) has its
+ * own sdcardfs inode for the same folder, so the flag set on the inode root
+ * sees is never seen by apps. Put a separate flag on the lower (real) inode and
+ * check that one for any sdcardfs inode. Separate bit so the normal hooks
+ * never hide the lower inode itself, sdcardfs looks it up for the owner app too.
+ * Nothing here runs if CONFIG_SDCARD_FS is off or the path isn't on sdcardfs.
+ */
+#if IS_ENABLED(CONFIG_SDCARD_FS)
+static void susfs_flag_sdcardfs_lower_inode(struct inode *inode, const char *pathname) {
+	struct inode *lower;
+
+	if (inode->i_sb->s_magic != SDCARDFS_SUPER_MAGIC)
+		return;
+	lower = sdcardfs_lower_inode(inode);
+	if (!lower)
+		return;
+	set_bit(AS_FLAGS_SUS_PATH_SDCARDFS, &lower->i_state);
+	SUSFS_LOGI("flagged AS_FLAGS_SUS_PATH_SDCARDFS on the lower inode of '%s', lower ino: '%lu'\n",
+			pathname, lower->i_ino);
+}
+
+/* Returns true if it handled the inode (a sdcardfs one), the answer is in *hide. */
+static bool susfs_is_sdcardfs_inode_sus_path(struct inode *inode, uid_t uid, bool *hide) {
+	struct inode *lower;
+
+	if (inode->i_sb->s_magic != SDCARDFS_SUPER_MAGIC)
+		return false;
+	*hide = false;
+	lower = READ_ONCE(SDCARDFS_I(inode)->lower_inode);
+	if (!test_bit(AS_FLAGS_SUS_PATH, &inode->i_state) &&
+		(!lower || !test_bit(AS_FLAGS_SUS_PATH_SDCARDFS, &lower->i_state)))
+		return true;
+	/* sdcardfs gives Android/data/<pkg> the uid of its app: never hide it from the owner */
+	if (uid_eq(inode->i_uid, current_uid()))
+		return true;
+	*hide = !susfs_is_uid_allowed_for_sus_path(uid);
+	return true;
+}
+#else
+static inline void susfs_flag_sdcardfs_lower_inode(struct inode *inode, const char *pathname) {}
+static inline bool susfs_is_sdcardfs_inode_sus_path(struct inode *inode, uid_t uid, bool *hide) { return false; }
+#endif
+
 /* sus_path */
 #ifdef CONFIG_KSU_SUSFS_SUS_PATH
 DEFINE_STATIC_SRCU(susfs_srcu_sus_path_loop);
@@ -294,7 +344,8 @@ void susfs_add_sus_path(void __user **user_info) {
 
 	set_bit(AS_FLAGS_SUS_PATH, &inode->i_state);
 	SUSFS_LOGI("flagged AS_FLAGS_SUS_PATH on pathname: '%s', ino: '%lu', inode->i_state: 0x%lx\n",
-				info.target_pathname, inode->i_ino, inode->i_state);
+			info.target_pathname, inode->i_ino, inode->i_state);
+	susfs_flag_sdcardfs_lower_inode(inode, info.target_pathname);
 	info.err = 0;
 out_path_put_path:
 	path_put(&path);
@@ -372,16 +423,13 @@ static void susfs_run_sus_path_loop(void) {
 				set_bit(AS_FLAGS_SUS_PATH, &inode->i_state);
 				SUSFS_LOGI("re-flag AS_FLAGS_SUS_PATH on path '%s', inode->i_ino: '%lu', inode->i_state: 0x%lx\n",
 						cursor->target_pathname, inode->i_ino, inode->i_state);
+				susfs_flag_sdcardfs_lower_inode(inode, cursor->target_pathname);
 			}
 			path_put(&path);
 		}
 	}
 	srcu_read_unlock(&susfs_srcu_sus_path_loop, srcu_idx);
 	revert_creds(saved);
-}
-
-static inline bool is_i_uid_not_allowed(uid_t i_uid) {
-	return likely(current_uid().val != i_uid);
 }
 
 /*****************************************/
@@ -821,56 +869,45 @@ bool susfs_is_uid_allowed_for_sus_path(uid_t uid) {
 /* - Please note that path inside /sdcard will be still visible to MediaProvider module,
  *   since the uid of path like /sdcard/TWRP will be the uid of your MediaProvider module.
  */
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 6, 0)
-bool susfs_is_inode_sus_path(struct mnt_idmap* idmap, struct inode *inode)
-#else
 bool susfs_is_inode_sus_path(struct inode *inode)
-#endif
 {
+	uid_t uid = current_uid().val % 100000;
 	struct fuse_inode *fi = NULL;
-	if (!susfs_is_current_proc_umounted_app()) {
+	bool hide_sdcardfs = false;
+
+	if (uid < 10000) {
 		return false;
 	}
+
 	if (!inode->i_mapping) {
 		SUSFS_LOGE("inode->i_mapping is NULL\n");
 		return false;
 	}
+
 	if (inode->i_sb->s_magic == FUSE_SUPER_MAGIC) {
 		fi = get_fuse_inode(inode);
 		if (!fi || !fi->inode.i_mapping) {
 			SUSFS_LOGE("fi || fi->inode.i_mapping is NULL\n");
 			return false;
 		}
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 6, 0)
+
 		if (unlikely(test_bit(AS_FLAGS_SUS_PATH, &fi->inode.i_state) &&
-			!susfs_is_uid_allowed_for_sus_path(i_uid_into_vfsuid(idmap, &fi->inode).val)))
-#elif LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)
-		if (unlikely(test_bit(AS_FLAGS_SUS_PATH, &fi->inode.i_state) &&
-			!susfs_is_uid_allowed_for_sus_path(i_uid_into_mnt(i_user_ns(&fi->inode), &fi->inode).val)))
-#else
-		if (unlikely(test_bit(AS_FLAGS_SUS_PATH, &fi->inode.i_state) &&
-			!susfs_is_uid_allowed_for_sus_path(fi->inode.i_uid.val)))
-#endif
+			likely(!susfs_is_uid_allowed_for_sus_path(uid))))
 		{
-			SUSFS_LOGI("hiding path with ino '%lu'\n", inode->i_ino);
 			return true;
 		}
 		return false;
 	}
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 6, 0)
+
+	if (susfs_is_sdcardfs_inode_sus_path(inode, uid, &hide_sdcardfs))
+		return hide_sdcardfs;
+
 	if (unlikely(test_bit(AS_FLAGS_SUS_PATH, &inode->i_state) &&
-		!susfs_is_uid_allowed_for_sus_path(i_uid_into_vfsuid(idmap, inode).val)))
-#elif LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)
-	if (unlikely(test_bit(AS_FLAGS_SUS_PATH, &inode->i_state) &&
-		!susfs_is_uid_allowed_for_sus_path(i_uid_into_mnt(i_user_ns(inode), inode).val)))
-#else
-	if (unlikely(test_bit(AS_FLAGS_SUS_PATH, &inode->i_state) &&
-		!susfs_is_uid_allowed_for_sus_path(inode->i_uid.val)))
-#endif
+		likely(!susfs_is_uid_allowed_for_sus_path(uid))))
 	{
-		SUSFS_LOGI("hiding path with ino '%lu'\n", inode->i_ino);
 		return true;
 	}
+
 	return false;
 }
 

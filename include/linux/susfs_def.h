@@ -82,6 +82,9 @@
 #define TIF_PROC_UMOUNTED_FOR_ZYGOTE_NEXT 35
 
 #define AS_FLAGS_SUS_PATH 33
+
+/* sdcardfs: set on the lower inode of a sus path that was added through sdcardfs */
+#define AS_FLAGS_SUS_PATH_SDCARDFS 41
 #define AS_FLAGS_SUS_MOUNT 34
 #define AS_FLAGS_SUS_KSTAT 35
 #define AS_FLAGS_OPEN_REDIRECT 36
