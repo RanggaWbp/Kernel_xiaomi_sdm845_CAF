@@ -5330,6 +5330,7 @@ static void css_release_work_fn(struct work_struct *work)
 		container_of(work, struct cgroup_subsys_state, destroy_work);
 	struct cgroup_subsys *ss = css->ss;
 	struct cgroup *cgrp = css->cgroup;
+	struct cgroup *tcgrp;
 
 	mutex_lock(&cgroup_mutex);
 
