@@ -3561,6 +3561,18 @@ static int cgroup_events_show(struct seq_file *seq, void *v)
 	return 0;
 }
 
+static int cgroup_stat_show(struct seq_file *seq, void *v)
+{
+	struct cgroup *cgroup = seq_css(seq)->cgroup;
+
+	seq_printf(seq, "nr_descendants %d\n",
+		   cgroup->nr_descendants);
+	seq_printf(seq, "nr_dying_descendants %d\n",
+		   cgroup->nr_dying_descendants);
+
+	return 0;
+}
+
 #ifdef CONFIG_PSI
 static int cgroup_io_pressure_show(struct seq_file *seq, void *v)
 {
@@ -5149,6 +5161,10 @@ static struct cftype cgroup_dfl_base_files[] = {
 		.seq_show = cgroup_events_show,
 	},
 	{
+		.name = "cgroup.stat",
+		.seq_show = cgroup_stat_show,
+	},
+	{
 		.name = "cgroup.freeze",
 		.flags = CFTYPE_NOT_ON_ROOT,
 		.seq_show = cgroup_freeze_show,
@@ -5328,6 +5344,12 @@ static void css_release_work_fn(struct work_struct *work)
 	} else {
 		/* cgroup release path */
 		trace_cgroup_release(cgrp);
+
+		spin_lock_irq(&css_set_lock);
+		for (tcgrp = cgroup_parent(cgrp); tcgrp;
+		     tcgrp = cgroup_parent(tcgrp))
+			tcgrp->nr_dying_descendants--;
+		spin_unlock_irq(&css_set_lock);
 
 		cgroup_idr_remove(&cgrp->root->cgroup_idr, cgrp->id);
 		cgrp->id = -1;

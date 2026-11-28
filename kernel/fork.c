@@ -1079,11 +1079,11 @@ static int wait_for_vfork_done(struct task_struct *child,
 	 * We're in a way of entering the signal handling loop.  If the cgroup
 	 * is freezing, we'll trap in get_signal().
 	 */
-	cgroup_enter_frozen();
 	freezer_do_not_count();
+	cgroup_enter_frozen();
 	killed = wait_for_completion_killable(vfork);
-	freezer_count();
 	cgroup_leave_frozen(false);
+	freezer_count();
 
 	if (killed) {
 		task_lock(child);

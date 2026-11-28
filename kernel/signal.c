@@ -2129,29 +2129,30 @@ static bool do_signal_stop(int signr)
  * released and re-acquired before returning with intervening sleep.
  */
 static void do_freezer_trap(void)
+	__releases(&current->sighand->siglock)
 {
 	/*
-	 * Freeze the task.  It will be unfrozen when the cgroup is
-	 * unfrozen.
+	 * If there are other trap bits pending except JOBCTL_TRAP_FREEZE,
+	 * let's make another loop to give it a chance to be handled.
+	 * In any case, we'll return back.
 	 */
-	WARN_ON_ONCE(current->frozen);
-
-	cgroup_enter_frozen();
-	current->jobctl &= ~JOBCTL_TRAP_FREEZE;
-	spin_unlock_irq(&current->sighand->siglock);
+	if ((current->jobctl & (JOBCTL_PENDING_MASK | JOBCTL_TRAP_FREEZE)) !=
+	     JOBCTL_TRAP_FREEZE) {
+		spin_unlock_irq(&current->sighand->siglock);
+		return;
+	}
 
 	/*
-	 * Wait for the cgroup to be unfrozen, then re-calculate the
-	 * pending signals.
+	 * Now we're sure that there is no pending fatal signal and no
+	 * pending traps. Clear TIF_SIGPENDING to not get out of schedule()
+	 * immediately (if there is a non-fatal signal pending), and
+	 * put the task into sleep.
 	 */
-	retry:
-	spin_lock_irq(&current->sighand->siglock);
-	if (test_bit(CGRP_FREEZE, &task_dfl_cgroup(current)->flags)) {
-		spin_unlock_irq(&current->sighand->siglock);
-		schedule();
-		goto retry;
-	}
-	cgroup_leave_frozen(true);
+	__set_current_state(TASK_INTERRUPTIBLE);
+	clear_thread_flag(TIF_SIGPENDING);
+	spin_unlock_irq(&current->sighand->siglock);
+	cgroup_enter_frozen();
+	freezable_schedule();
 }
 
 static void do_jobctl_trap(void)
@@ -2285,25 +2286,38 @@ relock:
 		trace_signal_deliver(SIGKILL, SEND_SIG_NOINFO,
 				&sighand->action[SIGKILL - 1]);
 		recalc_sigpending();
+		current->jobctl &= ~JOBCTL_TRAP_FREEZE;
+		spin_unlock_irq(&sighand->siglock);
+		if (unlikely(cgroup_task_frozen(current)))
+			cgroup_leave_frozen(true);
 		goto fatal;
 	}
 
 	for (;;) {
 		struct k_sigaction *ka;
 
-		if (unlikely(current->jobctl & JOBCTL_TRAP_FREEZE)) {
-			do_freezer_trap();
-			spin_unlock_irq(&sighand->siglock);
-			goto relock;
-		}
-
 		if (unlikely(current->jobctl & JOBCTL_STOP_PENDING) &&
 		    do_signal_stop(0))
 			goto relock;
 
-		if (unlikely(current->jobctl & JOBCTL_TRAP_MASK)) {
-			do_jobctl_trap();
+		if (unlikely(current->jobctl &
+			     (JOBCTL_TRAP_MASK | JOBCTL_TRAP_FREEZE))) {
+			if (current->jobctl & JOBCTL_TRAP_MASK) {
+				do_jobctl_trap();
+				spin_unlock_irq(&sighand->siglock);
+			} else if (current->jobctl & JOBCTL_TRAP_FREEZE)
+				do_freezer_trap();
+
+			goto relock;
+		}
+
+		/*
+		 * If the task is leaving the frozen state, let's update
+		 * cgroup counters and reset the frozen bit.
+		 */
+		if (unlikely(cgroup_task_frozen(current))) {
 			spin_unlock_irq(&sighand->siglock);
+			cgroup_leave_frozen(true);
 			goto relock;
 		}
 
@@ -2397,14 +2411,8 @@ relock:
 			continue;
 		}
 
-	fatal:
 		spin_unlock_irq(&sighand->siglock);
-
-		/*
-		 * The task is dying, remove it from the frozen state.
-		 */
-		current->jobctl &= ~JOBCTL_TRAP_FREEZE;
-		cgroup_leave_frozen(true);
+fatal:
 
 		/*
 		 * Anything else is fatal, maybe with a core dump.
